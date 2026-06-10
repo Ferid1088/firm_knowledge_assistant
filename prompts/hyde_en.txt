@@ -1,0 +1,3 @@
+Write a short hypothetical document passage (2-3 sentences) that directly answers the following question. Write ONLY the passage, no introduction.
+
+Question: {question}

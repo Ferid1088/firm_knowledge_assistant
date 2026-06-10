@@ -1,0 +1,63 @@
+{
+  "description": "DE/EN retrieval eval set, built from the actual content of raw_knowlegebase/TV_L.pdf (a German-language ADS study analysing the TV-L pay scale for gender pay equity). The corpus is currently German-only, so cross_lingual cases use English queries against German source chunks (testing the cross-lingual dense backbone, not sparse_en). Each entry has a query and expected_keywords that must appear in at least one top-k chunk.",
+  "version": "2.0",
+  "cases": [
+    {
+      "id": "de_01",
+      "query_lang": "de",
+      "query": "Welche Entgeltgruppen werden in der Studie zur Entgeltordnung des TV-L untersucht?",
+      "expected_keywords": ["Entgeltgruppe", "Entgeltordnung", "TV-L"],
+      "case_type": "factual"
+    },
+    {
+      "id": "de_02",
+      "query_lang": "de",
+      "query": "Was ist das Ziel des Projekts 'Gleicher Lohn - Prüfung der Entgeltgleichheit mit eg-check.de'?",
+      "expected_keywords": ["Antidiskriminierungsstelle", "Entgeltgleichheit", "eg-check"],
+      "case_type": "factual"
+    },
+    {
+      "id": "de_03",
+      "query_lang": "de",
+      "query": "§ 16 Abs. 3 TV-L Stufenaufstieg",
+      "expected_keywords": ["§ 16", "Stufe"],
+      "case_type": "exact_code"
+    },
+    {
+      "id": "de_04",
+      "query_lang": "de",
+      "query": "Welche Fähigkeiten werden von Mitarbeitenden im Sekretariat erwartet?",
+      "expected_keywords": ["Sekretariat", "Kompetenzen", "Tabelle 14"],
+      "case_type": "paraphrase"
+    },
+    {
+      "id": "en_01",
+      "query_lang": "en",
+      "query": "What competencies are required for secretarial staff according to the table?",
+      "expected_keywords": ["Sekretariat", "Kompetenzen"],
+      "case_type": "cross_lingual"
+    },
+    {
+      "id": "en_02",
+      "query_lang": "en",
+      "query": "How much does pay increase in salary group 9 after five years?",
+      "expected_keywords": ["Entgeltgruppe 9", "53,41"],
+      "case_type": "cross_lingual"
+    },
+    {
+      "id": "de_multi_01",
+      "query_lang": "de",
+      "query": "Was sind die Ziele der Analyse und welche Entgeltgruppe wird in Tabelle 12 für Erzieher_innen behandelt?",
+      "expected_keywords": ["Ziele", "Entgeltgruppe 9"],
+      "case_type": "multi_part"
+    },
+    {
+      "id": "de_vague_01",
+      "query_lang": "de",
+      "query": "Ist das fair?",
+      "expected_keywords": [],
+      "case_type": "vague",
+      "expected_abstain": true
+    }
+  ]
+}

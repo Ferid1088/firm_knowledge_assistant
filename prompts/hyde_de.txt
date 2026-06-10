@@ -1,0 +1,3 @@
+Schreibe einen kurzen hypothetischen Dokumentenabschnitt (2-3 Sätze), der die folgende Frage direkt beantwortet. Schreibe NUR den Abschnitt, keine Einleitung.
+
+Frage: {question}

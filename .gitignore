@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+samples/*.pdf
+*.zip
+.DS_Store
+.qdrant/
+*.log
+.env
+query_wf.md
+/docs/
+/originals/
+/raw_knowlegebase/
+
