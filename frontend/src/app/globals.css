@@ -98,6 +98,45 @@ body {
   color: #171717;
 }
 
+.answer-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.answer-detail-block {
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.answer-detail-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4b5563;
+  margin-bottom: 6px;
+}
+
+.answer-detail-block ul {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.answer-detail-block li {
+  line-height: 1.4;
+}
+
+.answer-detail-caveats {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
 .confidence-badge {
   font-size: 12px;
   padding: 2px 8px;

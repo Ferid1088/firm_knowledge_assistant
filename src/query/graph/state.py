@@ -28,8 +28,11 @@ class RAGState(TypedDict, total=False):
 
     # Answer
     answer: str
+    supporting_points: list[str]
+    caveats: list[str]
     claims: list[dict]                 # [{text, source, quote, verified}]
     artifact_chunks: list[dict]        # UI only: [{chunk_id, text, boxes, address, source}]
 
     # Internals
     escalation_reason: str
+    effective_retrieve_k: int

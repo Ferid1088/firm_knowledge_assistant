@@ -1,5 +1,6 @@
 """Build and compile the LangGraph RAG pipeline."""
 from __future__ import annotations
+
 from langgraph.graph import StateGraph, END
 
 from src.query.graph.state import RAGState
@@ -7,13 +8,24 @@ from src.query.graph.nodes import (
     prepare_query, retrieve, rerank,
     score_confidence, escalate, answer, abstain,
 )
-from config import MAX_ATTEMPTS, CONFIDENCE_THRESHOLD, CONFIDENCE_GAP_MIN
+from config import (
+    MAX_ATTEMPTS, CONFIDENCE_THRESHOLD, CONFIDENCE_GAP_MIN,
+)
+from src.common.tracing import build_langfuse_callbacks
+
+
+def _langfuse_callbacks() -> list:
+    """Self-hosted Langfuse tracing only (never cloud). Off unless configured."""
+    return build_langfuse_callbacks()
 
 
 def _route_confidence(state: RAGState) -> str:
     conf = state.get("confidence", 0.0)
+    gap = state.get("confidence_gap", 0.0)
     attempts = state.get("attempts", 0)
-    if conf >= CONFIDENCE_THRESHOLD:
+    reranked = state.get("reranked", [])
+    has_clear_winner = len(reranked) < 2 or gap >= CONFIDENCE_GAP_MIN
+    if conf >= CONFIDENCE_THRESHOLD and has_clear_winner:
         return "answer"
     if attempts < MAX_ATTEMPTS:
         return "escalate"
@@ -61,4 +73,5 @@ def run(question: str, active_lang_codes: list[str] | None = None) -> RAGState:
         "active_lang_codes": active_lang_codes or ["de", "en"],
         "attempts": 0,
     }
-    return rag_graph.invoke(init)
+    callbacks = _langfuse_callbacks()
+    return rag_graph.invoke(init, config={"callbacks": callbacks} if callbacks else {})

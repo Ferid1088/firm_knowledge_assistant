@@ -14,6 +14,7 @@ export type ArtifactChunk = {
   chunk_id: string;
   text: string;
   quote: string;
+  verified?: boolean;
   address: {
     doc_id: string;
     page: number | null;
@@ -27,6 +28,8 @@ export type ChatResponse = {
   answer_lang: string;
   confidence: number;
   attempts: number;
+  supporting_points: string[];
+  caveats: string[];
   claims: Claim[];
   artifact_chunks: ArtifactChunk[];
 };

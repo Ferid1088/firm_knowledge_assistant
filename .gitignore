@@ -7,7 +7,9 @@ samples/*.pdf
 .DS_Store
 .qdrant/
 *.log
+.logs/
 .env
+.env.*
 query_wf.md
 /docs/
 /originals/

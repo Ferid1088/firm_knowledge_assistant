@@ -10,6 +10,7 @@ flags are set in config.py (imported on module load).
 """
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import threading
@@ -22,9 +23,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from config import ORIGINALS_DIR, AVAILABLE_LANGUAGES, OLLAMA_MODEL, RETRIEVE_K
+from config import ORIGINALS_DIR, AVAILABLE_LANGUAGES, OLLAMA_MODEL, RETRIEVE_K, RERANKER_TOP_K
+from src.common.tracing import describe_langfuse_status
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Local RAG API")
+
+
+@app.on_event("startup")
+def log_runtime_diagnostics() -> None:
+    logger.info(describe_langfuse_status())
 
 # Pilot: Next.js dev server runs on localhost:3000. Internal-only origins.
 app.add_middleware(
@@ -66,6 +75,8 @@ class ChatResponse(BaseModel):
     answer_lang: str
     confidence: float
     attempts: int
+    supporting_points: list[str]
+    caveats: list[str]
     claims: list[dict]
     artifact_chunks: list[dict]
 
@@ -89,7 +100,7 @@ def get_config():
         "available_languages": [code for code, *_ in AVAILABLE_LANGUAGES],
         "default_active_languages": [code for code, *_ in AVAILABLE_LANGUAGES],
         "ollama_model": OLLAMA_MODEL,
-        "top_k": RETRIEVE_K,
+        "top_k": max(RETRIEVE_K, RERANKER_TOP_K),
     }
 
 
@@ -109,6 +120,8 @@ def chat(req: ChatRequest):
         answer_lang=state.get("answer_lang", "de"),
         confidence=float(state.get("confidence", 0.0)),
         attempts=int(state.get("attempts", 0)),
+        supporting_points=state.get("supporting_points", []),
+        caveats=state.get("caveats", []),
         claims=state.get("claims", []),
         artifact_chunks=state.get("artifact_chunks", []),
     )

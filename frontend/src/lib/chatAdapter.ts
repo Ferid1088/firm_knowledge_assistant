@@ -39,6 +39,8 @@ export const ragChatAdapter: ChatModelAdapter = {
           answer_lang: data.answer_lang,
           confidence: data.confidence,
           attempts: data.attempts,
+          supporting_points: data.supporting_points,
+          caveats: data.caveats,
           claims: data.claims,
           artifact_chunks: data.artifact_chunks,
         },

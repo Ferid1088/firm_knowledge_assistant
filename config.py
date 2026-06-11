@@ -11,6 +11,13 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
 
+# ── Tracing (self-hosted Langfuse only — never cloud LangSmith) ───────────
+# Off by default. To enable: run scripts/start_langfuse.sh, then export
+# LANGFUSE_ENABLED=true, LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+# (keys are local-instance credentials — kept in env, never in this file).
+LANGFUSE_ENABLED = os.environ.get("LANGFUSE_ENABLED", "false").lower() == "true"
+LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3001")
+
 # ── Embedding model ────────────────────────────────────────────────────────
 # Pilot: 0.6B fits on 16 GB M1. Production: swap to 4B/8B here only.
 EMBED_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"

@@ -19,6 +19,10 @@ qdrant-client
 # ── Orchestration ──────────────────────────────────────────────────────────
 langgraph
 
+# ── Tracing (self-hosted Langfuse only) ────────────────────────────────────
+langchain
+langfuse<3
+
 # ── Local LLM ─────────────────────────────────────────────────────────────
 ollama
 

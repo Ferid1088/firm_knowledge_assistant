@@ -16,6 +16,8 @@ type CustomMeta = {
   answer_lang?: string;
   confidence?: number;
   attempts?: number;
+  supporting_points?: string[];
+  caveats?: string[];
   claims?: Claim[];
   artifact_chunks?: ArtifactChunk[];
 };
@@ -41,19 +43,59 @@ function Citations({
   return (
     <div className="citations">
       {chunks.map((c, i) => (
-        <button key={`${c.chunk_id}-${i}`} className="citation-item" onClick={() => onSelect(c)}>
+        <button
+          key={`${c.chunk_id}-${i}`}
+          className={`citation-item ${c.verified === false ? "unverified" : ""}`.trim()}
+          onClick={() => onSelect(c)}
+        >
           [{c.source}] {c.address.heading_path.join(" > ") || c.address.doc_id}
           {c.address.page != null ? ` · p.${c.address.page + 1}` : ""}
+          {c.verified === false ? " · quote not exact" : ""}
           <br />
           <em>&ldquo;{c.quote}&rdquo;</em>
         </button>
       ))}
-      {unverified.map((c, i) => (
+      {unverified.filter((c) => !chunks.some((chunk) => chunk.source === c.source)).map((c, i) => (
         <div key={`unverified-${i}`} className="citation-item unverified">
           [{c.source}] unverified — &ldquo;{c.quote}&rdquo;
         </div>
       ))}
       {chunks.length === 0 && unverified.length === 0 && verifiedSources.size === 0 && null}
+    </div>
+  );
+}
+
+function AnswerDetails({
+  supportingPoints,
+  caveats,
+}: {
+  supportingPoints: string[];
+  caveats: string[];
+}) {
+  if (supportingPoints.length === 0 && caveats.length === 0) return null;
+
+  return (
+    <div className="answer-details">
+      {supportingPoints.length > 0 && (
+        <div className="answer-detail-block">
+          <div className="answer-detail-title">Key details</div>
+          <ul>
+            {supportingPoints.map((point, i) => (
+              <li key={`point-${i}`}>{point}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {caveats.length > 0 && (
+        <div className="answer-detail-block answer-detail-caveats">
+          <div className="answer-detail-title">Caveats</div>
+          <ul>
+            {caveats.map((item, i) => (
+              <li key={`caveat-${i}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -89,6 +131,12 @@ function Thread({ onSelectChunk }: { onSelectChunk: (chunk: ArtifactChunk) => vo
           return (
             <div key={m.id} className={`message-row ${m.role}`}>
               <div className="message-bubble">{text}</div>
+              {m.role === "assistant" && (
+                <AnswerDetails
+                  supportingPoints={meta.supporting_points ?? []}
+                  caveats={meta.caveats ?? []}
+                />
+              )}
               {m.role === "assistant" && meta.confidence !== undefined && (
                 <ConfidenceBadge confidence={meta.confidence} />
               )}
