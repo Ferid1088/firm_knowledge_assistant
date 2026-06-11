@@ -112,14 +112,14 @@ export function PdfViewer({
 
   if (!docId) {
     return (
-      <div style={{ padding: 24, color: "#666" }}>
+      <div className="viewer-placeholder">
         Click a citation to open its source document here.
       </div>
     );
   }
 
   if (error) {
-    return <div style={{ padding: 24, color: "#991b1b" }}>Error loading PDF: {error}</div>;
+    return <div className="viewer-error">Error loading PDF: {error}</div>;
   }
 
   return <div ref={containerRef} style={{ padding: 12 }} />;

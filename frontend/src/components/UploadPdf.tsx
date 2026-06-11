@@ -71,7 +71,12 @@ export function UploadPdf() {
     <div className="upload-pdf">
       <input ref={inputRef} type="file" accept="application/pdf" hidden onChange={onFileChosen} />
       <button onClick={pickFile} disabled={busy || job?.status === "queued" || job?.status === "running"}>
-        + PDF hinzufügen
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 3v12" />
+          <path d="m7 8 5-5 5 5" />
+          <path d="M5 21h14" />
+        </svg>
+        PDF hinzufügen
       </button>
       {job && (
         <span className={`upload-status upload-status-${job.status}`}>
