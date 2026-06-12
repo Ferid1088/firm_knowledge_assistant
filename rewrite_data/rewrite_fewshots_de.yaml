@@ -1,0 +1,19 @@
+# Query-rewrite few-shot examples — generic, cross-domain.
+#
+# Diese Beispiele zeigen dem Modell, wie eine umgangssprachliche/gesprochene
+# Anfrage UM die im Korpus übliche formelle/schriftliche Terminologie ergänzt
+# wird (additiv — die ursprüngliche Formulierung bleibt erhalten).
+# Referenzen, Codes und Zahlen werden in `out` VERBATIM übernommen — diese
+# Beispiele lehren auch den Post-Check, den das Modell erfüllen muss.
+- in: "Wie viel Kohle krieg ich dafür?"
+  out: "Wie viel Kohle krieg ich dafür? Entgelt Vergütung Betrag"
+- in: "Was passiert, wenn ich zu spät komme?"
+  out: "Was passiert, wenn ich zu spät komme? Verspätung Versäumnis Pflichtverletzung"
+- in: "Wie lange ist die Kündigungsfrist?"
+  out: "Wie lange ist die Kündigungsfrist? Kündigung Frist Kündigungsfrist"
+- in: "Hab ich Anspruch auf mehr Urlaub?"
+  out: "Hab ich Anspruch auf mehr Urlaub? Urlaubsanspruch Erholungsurlaub"
+- in: "Was steht in § 5 Abs. 2 dazu?"
+  out: "Was steht in § 5 Abs. 2 dazu? Regelung Bestimmung"
+- in: "Wer zahlt das, wenn was kaputt geht?"
+  out: "Wer zahlt das, wenn was kaputt geht? Haftung Schadensersatz Kostenübernahme"

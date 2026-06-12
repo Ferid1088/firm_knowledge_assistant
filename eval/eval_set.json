@@ -58,6 +58,27 @@
       "expected_keywords": [],
       "case_type": "vague",
       "expected_abstain": true
+    },
+    {
+      "id": "de_rewrite_01",
+      "query_lang": "de",
+      "query": "Wie wirkt sich ein Aufstieg auf mein Gehalt aus?",
+      "expected_keywords": ["Stufenaufstieg", "Entgelt"],
+      "case_type": "rewrite_colloquial"
+    },
+    {
+      "id": "de_rewrite_02",
+      "query_lang": "de",
+      "query": "Gibt es einen Lohnunterschied zwischen Männern und Frauen beim TV-L?",
+      "expected_keywords": ["Entgeltgleichheit"],
+      "case_type": "rewrite_colloquial"
+    },
+    {
+      "id": "de_rewrite_03",
+      "query_lang": "de",
+      "query": "Was bedeutet § 16 Abs. 3 für meine Einstufung?",
+      "expected_keywords": ["§ 16", "Eingruppierung"],
+      "case_type": "rewrite_colloquial"
     }
   ]
 }

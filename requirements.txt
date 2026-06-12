@@ -13,6 +13,9 @@ nltk
 # ── Language detection ─────────────────────────────────────────────────────
 langdetect
 
+# ── Config data files (rewrite dictionaries / few-shots) ───────────────────
+PyYAML
+
 # ── Vector store ───────────────────────────────────────────────────────────
 qdrant-client
 

@@ -1,0 +1,19 @@
+# Query-rewrite few-shot examples — generic, cross-domain.
+#
+# These examples show the model how to AUGMENT a colloquial/spoken-register
+# query with the formal/written terminology typical of a document corpus
+# (additive — the original wording is preserved). References, codes, and
+# numbers are copied VERBATIM in `out` — these examples also teach the
+# post-check the model must satisfy.
+- in: "How much money do I get if I get promoted?"
+  out: "How much money do I get if I get promoted? entitlement amount remuneration"
+- in: "What happens if I show up late?"
+  out: "What happens if I show up late? lateness absence breach of duty"
+- in: "How long is the notice period?"
+  out: "How long is the notice period? notice period termination"
+- in: "Do I get more vacation days?"
+  out: "Do I get more vacation days? annual leave entitlement"
+- in: "What does § 5 Abs. 2 say about this?"
+  out: "What does § 5 Abs. 2 say about this? provision regulation"
+- in: "Who pays if something breaks?"
+  out: "Who pays if something breaks? liability damages cost coverage"

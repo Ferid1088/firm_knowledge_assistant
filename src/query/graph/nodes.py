@@ -15,11 +15,12 @@ from config import (
     OLLAMA_MODEL, OLLAMA_TEMPERATURE, RETRIEVE_K, RETRIEVE_DEEP_POOL,
     MAX_ATTEMPTS, CONFIDENCE_THRESHOLD, CONFIDENCE_GAP_MIN,
     ENABLE_TRANSLATED_BM25, RERANKER_MODEL_ID, RERANKER_TOP_K, DEFAULT_ANSWER_LANG,
-    QDRANT_DIR,
+    QDRANT_DIR, REWRITE,
 )
 from src.common.tracing import observe_if_enabled
 from src.common.language import registry
 from src.query.graph.state import RAGState
+from src.rewrite import rewrite_query, rrf_fuse_hits
 
 
 # ── Lazy-loaded singletons ─────────────────────────────────────────────────
@@ -282,7 +283,23 @@ def retrieve(state: RAGState) -> RAGState:
 
     # Sort by score, keep deep pool
     all_hits.sort(key=lambda x: x["score"], reverse=True)
-    return {**state, "candidate_pool": all_hits[:k], "effective_retrieve_k": k}
+    all_hits = all_hits[:k]
+
+    # Reactive query-rewrite rung — augment, never replace: search the
+    # rewritten query too and RRF-fuse with the original-query results.
+    rewritten_query = state.get("rewritten_query", "")
+    if rewritten_query:
+        rewrite_hits = store_search(
+            _get_collection(),
+            _get_embedder(),
+            rewritten_query,
+            _bm25_indices,
+            active_codes,
+            k=k,
+        )
+        all_hits = rrf_fuse_hits([all_hits, rewrite_hits])[:k]
+
+    return {**state, "candidate_pool": all_hits, "effective_retrieve_k": k}
 
 
 # ── Node: rerank ───────────────────────────────────────────────────────────
@@ -334,7 +351,7 @@ def escalate(state: RAGState) -> RAGState:
         if decomposed and decomposed != sub_questions:
             sub_questions = decomposed
 
-    return {
+    result = {
         **state,
         "attempts": attempts,
         "sub_questions": sub_questions,
@@ -345,6 +362,18 @@ def escalate(state: RAGState) -> RAGState:
             f"gap={state.get('confidence_gap', 0):.2f}, attempt {attempts}"
         ),
     }
+
+    # Reactive query-rewrite rung — computed once, on the first escalation.
+    if (
+        REWRITE.get("enabled")
+        and REWRITE.get("trigger") == "reactive"
+        and "rewritten_query" not in state
+    ):
+        query_lang = state.get("query_lang", DEFAULT_ANSWER_LANG)
+        rewritten = rewrite_query(state["question"], query_lang, REWRITE, OLLAMA_MODEL)
+        result["rewritten_query"] = rewritten or ""
+
+    return result
 
 
 # ── Node: answer ───────────────────────────────────────────────────────────

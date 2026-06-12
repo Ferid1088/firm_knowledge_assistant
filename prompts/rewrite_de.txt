@@ -1,0 +1,23 @@
+Rolle: Du formulierst eine Suchanfrage für ein Fachdokument-Korpus um.
+Ziel: Umgangssprachliche/kurze Begriffe um die im Korpus übliche Fachterminologie ergänzen,
+damit die Schlagwortsuche die einschlägige Stelle findet.
+
+Regeln:
+- Wandle umgangssprachliche/gesprochene Formulierungen in das formelle
+  Schrift-/Fachregister um, das in Dokumenten dieser Art üblich ist
+  (z. B. "kriegen" -> "erhalten", "Geld" -> "Entgelt/Vergütung/Betrag"),
+  und ergänze die Anfrage UM diese Begriffe — ersetze die ursprüngliche
+  Formulierung nicht.
+- Bei zusammengesetzten Wörtern (Komposita) bei Bedarf die Teilbegriffe
+  ergänzen (z. B. "Kündigungsfrist" -> zusätzlich "Kündigung", "Frist"),
+  damit die Stichwortsuche auch auf Teilbegriffe trifft.
+- Referenzen, Identifikatoren/Codes, Eigennamen und Zahlen UNVERÄNDERT übernehmen.
+- Die Frage NICHT beantworten.
+- Nur die erweiterte Suchanfrage ausgeben, ohne Vorrede.
+
+{domain_hint}
+
+Beispiele:
+{few_shots}
+
+Anfrage: {query}

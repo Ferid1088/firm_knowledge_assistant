@@ -33,7 +33,11 @@ def _client(persist_dir: str = QDRANT_DIR) -> QdrantClient:
     if _CLIENT is None or _CLIENT_DIR != persist_dir:
         if _CLIENT is not None:
             _CLIENT.close()
-        _CLIENT = QdrantClient(path=persist_dir)
+        # Local mode persists via SQLite, which by default ties a connection to
+        # the thread that created it. The FastAPI app accesses this singleton
+        # client from different threadpool threads (background ingest jobs vs.
+        # request handlers), so the same-thread check must be disabled.
+        _CLIENT = QdrantClient(path=persist_dir, force_disable_check_same_thread=True)
         _CLIENT_DIR = persist_dir
     return _CLIENT
 
@@ -88,6 +92,7 @@ def _make_point(
             "page": address.get("page") or 0,
             "boxes": json.dumps(address.get("boxes", {})),
             "lang": lang,
+            "references": json.dumps(chunk.metadata.get("references", [])),
             "version_id": version_id,
             "is_current": True,
             "chunk_index_in_parent": chunk.chunk_index_in_parent,

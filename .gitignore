@@ -11,6 +11,7 @@ samples/*.pdf
 .env
 .env.*
 query_wf.md
+retrival.md
 /docs/
 /originals/
 /raw_knowlegebase/

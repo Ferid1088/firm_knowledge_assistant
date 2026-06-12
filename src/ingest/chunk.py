@@ -19,7 +19,8 @@ from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTok
 from docling_core.types.doc import DocItemLabel
 from transformers import AutoTokenizer
 
-from config import EMBED_MODEL_ID, CHUNK_MAX_TOKENS
+from config import EMBED_MODEL_ID, CHUNK_MAX_TOKENS, STRUCTURE, OLLAMA_MODEL
+from src.structure import is_pseudo_header, is_ambiguous_header, classify_headers
 
 
 # ── Recommendation / clause detection heuristics ──────────────────────────
@@ -67,22 +68,57 @@ def _heading_path_str(path: list[str]) -> str:
     return " > ".join(path) if path else ""
 
 
-def chunk_document(doc, prose_chunker=None) -> list[StructuralChunk]:
+def chunk_document(doc, prose_chunker=None, stats: Optional[dict] = None,
+                    doc_lang: str = "de", ollama_model: str = OLLAMA_MODEL) -> list[StructuralChunk]:
     """
     Walk the Docling document tree and produce StructuralChunks.
     Tables and recommendations are atomic leaves.
     Prose is windowed by HybridChunker within each section.
+
+    If `stats` is given, stats["pseudo_headers_demoted"] is incremented for
+    each heading demoted to prose (see indexing_correction.md, PHASE 1 step 1).
+
+    Step 6: headers that are short but not deterministically demoted are
+    flagged (stats["headers_flagged_ambiguous"]) and batch-classified by a
+    local LLM; those labeled "label" are also demoted
+    (stats["headers_llm_demoted"]).
     """
     if prose_chunker is None:
         prose_chunker = make_prose_chunker()
+    if stats is None:
+        stats = {}
+    stats.setdefault("pseudo_headers_demoted", 0)
+    stats.setdefault("headers_flagged_ambiguous", 0)
+    stats.setdefault("headers_llm_demoted", 0)
+
+    # Pass 1: collect ambiguous (flagged) header texts for batch classification.
+    llm_labels: dict[str, str] = {}
+    if STRUCTURE.get("use_llm_classifier", False):
+        flagged: list[str] = []
+        seen: set[str] = set()
+        try:
+            for item, _level in doc.iterate_items():
+                label = getattr(item, "label", None)
+                text = getattr(item, "text", "") or ""
+                if label == DocItemLabel.SECTION_HEADER or label == DocItemLabel.TITLE:
+                    if is_ambiguous_header(text, STRUCTURE) and text not in seen:
+                        seen.add(text)
+                        flagged.append(text)
+        except Exception:
+            flagged = []
+
+        stats["headers_flagged_ambiguous"] += len(flagged)
+        if flagged:
+            llm_labels = classify_headers(flagged, doc_lang, STRUCTURE, ollama_model)
+            stats["headers_llm_demoted"] += sum(1 for t in flagged if llm_labels.get(t) == "label")
 
     chunks: list[StructuralChunk] = []
-    _walk(doc, prose_chunker, [], None, chunks, [0])
+    _walk(doc, prose_chunker, [], None, chunks, [0], stats, llm_labels)
     return chunks
 
 
 def _walk(doc, prose_chunker, heading_path: list[str], parent_id: Optional[str],
-          out: list[StructuralChunk], counter: list[int]):
+          out: list[StructuralChunk], counter: list[int], stats: dict, llm_labels: dict):
     """Recursively walk items using the Docling document's body children."""
     try:
         items = list(doc.iterate_items())
@@ -121,6 +157,15 @@ def _walk(doc, prose_chunker, heading_path: list[str], parent_id: Optional[str],
     for item, level in items:
         label = getattr(item, "label", None)
         text = getattr(item, "text", "") or ""
+
+        if (label == DocItemLabel.SECTION_HEADER or label == DocItemLabel.TITLE) \
+                and (is_pseudo_header(text, STRUCTURE) or llm_labels.get(text) == "label"):
+            # Pseudo-header (form label, e.g. "Antwort:") — demote to prose so it
+            # doesn't create an artificial chunk-merge boundary (indexing_correction.md).
+            if text.strip():
+                prose_buffer.append((item, list(prose_heading_path)))
+            stats["pseudo_headers_demoted"] += 1
+            continue
 
         if label == DocItemLabel.SECTION_HEADER or label == DocItemLabel.TITLE:
             _flush_prose()

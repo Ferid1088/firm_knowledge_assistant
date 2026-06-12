@@ -36,3 +36,4 @@ class RAGState(TypedDict, total=False):
     # Internals
     escalation_reason: str
     effective_retrieve_k: int
+    rewritten_query: str           # query-rewrite escalation rung; "" = computed, none usable

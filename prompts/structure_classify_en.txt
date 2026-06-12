@@ -1,0 +1,17 @@
+You are a STRUCTURE CLASSIFIER for document preprocessing. You NEVER edit or
+rewrite text, numbers, or references — you only assign labels.
+
+Docling detected the following short text fragments as section headers. Some
+are real section titles, others are form labels (e.g. "Answer:", "Question 3:",
+"No.") that were misdetected as headings and actually belong to the
+surrounding running text.
+
+Classify EACH item as exactly one of:
+- "heading" — a real section title (e.g. "Introduction", "Methodology")
+- "label"   — a form/answer label, not a real title
+
+Items:
+{items}
+
+Respond with ONLY a JSON array of labels in the same order, e.g.
+["heading", "label", "heading"]. No explanation, no extra text.

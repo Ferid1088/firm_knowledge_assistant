@@ -25,7 +25,7 @@ language with verified, clickable source citations.
 - Answering LLM: **local** — Ollama (pilot) / vLLM (production); model id is one config value
 - Orchestration: **LangGraph** (self-hosted)
 - Frontend: **Next.js + assistant-ui** (LangGraph runtime), responsive/PWA, internal; **PDF.js**
-  viewer (assets bundled locally). Streamlit = PILOT ONLY.
+  viewer (assets bundled locally).
 - Optional self-hosted only: Postgres (persistence), Langfuse (observability). NEVER cloud.
 
 ## Architecture principles
@@ -94,7 +94,7 @@ otherwise. Defense-in-depth across six layers; the egress firewall is what makes
 
 **Layer 3 — Default-ON tool telemetry (metadata; each is a separate switch to find + flip).**
 - Disable explicitly and VERIFY per version: Qdrant telemetry, Hugging Face telemetry,
-  Next.js (NEXT_TELEMETRY_DISABLED=1), Streamlit usage stats, Gradio analytics, Chroma/PostHog.
+  Next.js (NEXT_TELEMETRY_DISABLED=1), Gradio analytics, Chroma/PostHog.
   Do not assume any are off by default.
 
 **Layer 4 — Browser / client (leaks from the device, bypassing the server firewall).**
