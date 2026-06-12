@@ -1,4 +1,4 @@
-// Mirrors src/api.py response models. Backend is the source of truth.
+// Mirrors backend/api/routes/*.py response models. Backend is the source of truth.
 
 export type Claim = {
   text: string;

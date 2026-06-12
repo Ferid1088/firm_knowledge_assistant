@@ -202,7 +202,7 @@ ensure_frontend_deps() {
 load_config() {
   local cfg
   cfg="$((cd "$ROOT_DIR" && python3 - <<'PY'
-from config import OLLAMA_MODEL, OLLAMA_BASE_URL, EMBED_MODEL_ID, RERANKER_MODEL_ID
+from backend.config import OLLAMA_MODEL, OLLAMA_BASE_URL, EMBED_MODEL_ID, RERANKER_MODEL_ID
 print(OLLAMA_MODEL)
 print(OLLAMA_BASE_URL)
 print(EMBED_MODEL_ID)
@@ -214,13 +214,13 @@ PY
 read_config_values() {
   local cfg
   cfg="$(cd "$ROOT_DIR" && python3 - <<'PY'
-from config import OLLAMA_MODEL, OLLAMA_BASE_URL, EMBED_MODEL_ID, RERANKER_MODEL_ID
+from backend.config import OLLAMA_MODEL, OLLAMA_BASE_URL, EMBED_MODEL_ID, RERANKER_MODEL_ID
 print(OLLAMA_MODEL)
 print(OLLAMA_BASE_URL)
 print(EMBED_MODEL_ID)
 print(RERANKER_MODEL_ID)
 PY
-)" || die "Unable to read local model settings from config.py"
+)" || die "Unable to read local model settings from backend/config.py"
 
   OLLAMA_MODEL="$(printf '%s\n' "$cfg" | sed -n '1p')"
   OLLAMA_BASE_URL="$(printf '%s\n' "$cfg" | sed -n '2p')"
@@ -274,7 +274,7 @@ start_backend() {
   start_background \
     "backend" \
     "$BACKEND_LOG" \
-    "cd \"$ROOT_DIR\" && source \"$ROOT_DIR/.venv/bin/activate\" && exec python -m uvicorn src.api:app --host $BACKEND_HOST --port $BACKEND_PORT"
+    "cd \"$ROOT_DIR\" && source \"$ROOT_DIR/.venv/bin/activate\" && exec python -m uvicorn backend.api.main:app --host $BACKEND_HOST --port $BACKEND_PORT"
 
   if wait_for_http "backend" "$health_url" 30; then
     success "Backend is ready at ${BACKEND_URL}"

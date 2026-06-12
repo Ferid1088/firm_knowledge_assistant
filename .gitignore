@@ -15,4 +15,12 @@ retrival.md
 /docs/
 /originals/
 /raw_knowlegebase/
+Query_Rewrite Module_Implementation_Spec.md
+codebase_revollution.md
 
+# Runtime data (never commit)
+database/qdrant/
+documents/
+
+# Legacy paths (if they ever come back)
+.pytest_cache/

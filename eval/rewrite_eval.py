@@ -17,12 +17,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import QDRANT_DIR, OLLAMA_MODEL, REWRITE
-from src.common.embed import load_embedder
-from src.common.store import get_collection, search as store_search
-from src.ingest.pipeline import rebuild_bm25_indices
-from src.common.language import registry
-from src.rewrite import rewrite_query, rrf_fuse_hits
+from backend.config import QDRANT_DIR, OLLAMA_MODEL, REWRITE
+from backend.adapters.embedder import load_embedder
+from backend.services.store import get_collection, search as store_search
+from backend.tools.pdf_ingest import rebuild_bm25_indices
+from backend.services.language import registry
+from backend.tools.rewriter import rewrite_query
+from backend.services.fusion import rrf_fuse_hits
 from eval.recall_harness import load_eval_set, hits_contain_keyword
 
 

@@ -9,7 +9,7 @@ import json
 
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-from src.common.store import get_collection
+from backend.services.store import get_collection
 
 
 def main() -> None:
