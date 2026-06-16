@@ -9,6 +9,14 @@ export function setActiveLangCodes(codes: string[]) {
   activeLangCodes = codes;
 }
 
+// Doc type filter for retrieval — null/empty means "all allowed types".
+// Set by the sidebar filter selector.
+let activeDocTypeFilter: string[] = [];
+
+export function setActiveDocTypeFilter(ids: string[]) {
+  activeDocTypeFilter = ids;
+}
+
 // The conversation the chat is currently scoped to. Set by the sidebar when
 // the user creates/selects a conversation.
 let activeConversationId: string | null = null;
@@ -32,7 +40,11 @@ export const ragChatAdapter: ChatModelAdapter = {
     const res = await fetch(`/api/conversations/${activeConversationId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, active_lang_codes: activeLangCodes }),
+      body: JSON.stringify({
+        question,
+        active_lang_codes: activeLangCodes,
+        doc_type_filter: activeDocTypeFilter.length > 0 ? activeDocTypeFilter : null,
+      }),
       signal: abortSignal,
       credentials: "include",
     });

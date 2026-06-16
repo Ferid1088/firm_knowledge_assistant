@@ -4,7 +4,7 @@ No node ever writes a language code literally; everything goes through this regi
 """
 from __future__ import annotations
 from dataclasses import dataclass
-from config import AVAILABLE_LANGUAGES, DEFAULT_ANSWER_LANG
+from backend.config import AVAILABLE_LANGUAGES, DEFAULT_ANSWER_LANG
 
 
 @dataclass(frozen=True)

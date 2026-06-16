@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/setup-required"];
+const PUBLIC_PATHS = ["/login", "/setup-required", "/change-password"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -16,7 +16,7 @@ export async function middleware(req: NextRequest) {
   }
 
   // Check auth status via backend (include cookies from the incoming request)
-  let status: { setup_required?: boolean; authenticated?: boolean; user?: { role_id?: string } };
+  let status: { setup_required?: boolean; authenticated?: boolean; user?: { role_id?: string; must_change_password?: boolean } };
   try {
     const res = await fetch("http://127.0.0.1:8000/api/auth/status", {
       headers: { Cookie: req.headers.get("cookie") ?? "" },
@@ -33,6 +33,9 @@ export async function middleware(req: NextRequest) {
   }
   if (!status.authenticated) {
     return NextResponse.redirect(new URL("/login", req.url));
+  }
+  if (status.user?.must_change_password) {
+    return NextResponse.redirect(new URL("/change-password", req.url));
   }
   if (pathname.startsWith("/admin") && status.user?.role_id !== "superadmin") {
     return NextResponse.redirect(new URL("/", req.url));

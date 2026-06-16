@@ -39,10 +39,11 @@ CREATE TABLE IF NOT EXISTS users (
     department_id TEXT NOT NULL REFERENCES departments(id),
     role_id       TEXT NOT NULL REFERENCES roles(id),
     is_active     INTEGER NOT NULL DEFAULT 1,
-    mfa_enabled   INTEGER NOT NULL DEFAULT 0,
-    mfa_secret    TEXT,
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
+    mfa_enabled          INTEGER NOT NULL DEFAULT 0,
+    mfa_secret           TEXT,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL,
+    updated_at           TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -105,6 +106,24 @@ CREATE TABLE IF NOT EXISTS rate_limit_counters (
     window_start TEXT NOT NULL,
     count        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (key, window_type, window_start)
+);
+
+-- Document types (admin-managed; used as chunk metadata and access control)
+CREATE TABLE IF NOT EXISTS document_types (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    code        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    status      TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'archived')),
+    created_at  TEXT NOT NULL
+);
+
+-- Per-user document type access (if NO rows exist for a user, they see ALL active types)
+CREATE TABLE IF NOT EXISTS user_doc_type_permissions (
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    doc_type_id TEXT NOT NULL REFERENCES document_types(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, doc_type_id)
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (

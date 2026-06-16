@@ -15,14 +15,14 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, SparseVectorParams, SparseIndexParams,
-    PointStruct, SparseVector, Filter, FieldCondition, MatchValue,
+    PointStruct, SparseVector, Filter, FieldCondition, MatchValue, MatchAny,
 )
 
-from config import (
+from backend.config import (
     QDRANT_DIR, QDRANT_COLLECTION, EMBED_DIM,
     RETRIEVE_DEEP_POOL,
 )
-from src.common.language import registry
+from backend.services.language import registry
 
 _CLIENT: QdrantClient | None = None
 _CLIENT_DIR: str | None = None
@@ -60,7 +60,7 @@ def _make_point(
     version_id: str,
     sizes: dict,
 ) -> PointStruct:
-    from src.common.citations import chunk_address
+    from backend.services.citations import chunk_address
     address = chunk_address(chunk, doc_id, sizes)
 
     vectors: dict[str, Any] = {"dense": dense_vec}
@@ -128,8 +128,8 @@ def index_chunks(
     doc_id: str,
     sizes: dict,
 ) -> int:
-    from src.common.embed import embed_texts
-    from src.common.language import registry
+    from backend.adapters.embedder import embed_texts
+    from backend.services.language import registry
 
     client, collection = collection_tuple
     version_id = str(uuid.uuid4())
@@ -189,14 +189,24 @@ def search(
     active_lang_codes: list[str],
     k: int = RETRIEVE_DEEP_POOL,
     current_only: bool = True,
+    allowed_doc_type_ids: list[str] | None = None,  # None = all types allowed
 ) -> list[dict]:
-    from src.common.embed import embed_query
-    from src.common.language import registry
-    import json
+    from backend.adapters.embedder import embed_query
+    from backend.services.language import registry
 
     client, collection = collection_tuple
 
-    current_filter = Filter(must=[FieldCondition(key="is_current", match=MatchValue(value=True))]) if current_only else None
+    must_conditions = []
+    if current_only:
+        must_conditions.append(FieldCondition(key="is_current", match=MatchValue(value=True)))
+    # Hard access-control filter: NEVER return chunks from types the user cannot see
+    if allowed_doc_type_ids is not None:
+        if not allowed_doc_type_ids:
+            return []  # user has restrictions but none are active → return nothing
+        must_conditions.append(
+            FieldCondition(key="doc_type", match=MatchAny(any=allowed_doc_type_ids))
+        )
+    current_filter = Filter(must=must_conditions) if must_conditions else None
 
     # ── Dense pass ────────────────────────────────────────────────────────
     q_vec = embed_query(embedder, query).tolist()

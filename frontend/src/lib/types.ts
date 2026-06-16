@@ -36,7 +36,21 @@ export type IngestJobStatus = {
   status: "queued" | "running" | "done" | "error";
   doc_id: string;
   n_chunks: number | null;
+  doc_type: string | null;
+  doc_type_confidence: number | null;
+  parser_name: string | null;
+  chunker_name: string | null;
+  is_scanned: boolean | null;
   error: string | null;
+};
+
+export type DocumentType = {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+  status: "active" | "archived";
+  created_at: string;
 };
 
 export type User = {
@@ -47,6 +61,8 @@ export type User = {
   role_name: string;
   department_id: string;
   permissions: string[];
+  must_change_password?: boolean;
+  allowed_doc_type_ids?: string[] | null;
 };
 
 export type AuthStatus =
@@ -62,6 +78,7 @@ export type AdminUser = {
   role_id: string;
   role_name: string;
   is_active: number;
+  must_change_password: number;
   created_at: string;
   updated_at: string;
 };

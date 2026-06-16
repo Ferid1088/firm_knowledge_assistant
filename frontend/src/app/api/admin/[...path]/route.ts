@@ -7,7 +7,8 @@ import { BACKEND_ORIGIN } from "@/lib/backend";
 
 async function proxy(req: NextRequest, params: { path: string[] }) {
   const path = params.path.join("/");
-  const url = `${BACKEND_ORIGIN}/api/admin/${path}`;
+  const search = req.nextUrl.search ?? "";
+  const url = `${BACKEND_ORIGIN}/api/admin/${path}${search}`;
 
   const headers: Record<string, string> = {
     "Content-Type": req.headers.get("content-type") ?? "application/json",

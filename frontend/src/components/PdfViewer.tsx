@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ArtifactChunk } from "@/lib/types";
+import { AlertTriangleIcon, FileSearchIcon } from "@/components/icons";
 
 // pdfjs-dist is bundled locally (no CDN worker, per CLAUDE.md air-gap rules).
 // The worker file is copied to /public/pdf.worker.min.mjs at build/dev time.
@@ -112,15 +113,50 @@ export function PdfViewer({
 
   if (!docId) {
     return (
-      <div style={{ padding: 24, color: "#666" }}>
-        Click a citation to open its source document here.
+      <div className="pdf-viewer-shell pdf-viewer-shell-empty">
+        <div className="pdf-viewer-topbar">
+          <div>
+            <span className="pdf-viewer-eyebrow">Document viewer</span>
+            <h3>Source preview</h3>
+          </div>
+        </div>
+        <div className="pdf-empty">
+          <FileSearchIcon />
+          <h4>Select a citation to inspect the original document.</h4>
+          <p>The referenced PDF page will open here with the relevant section highlighted.</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
-    return <div style={{ padding: 24, color: "#991b1b" }}>Error loading PDF: {error}</div>;
+    return (
+      <div className="pdf-viewer-shell pdf-viewer-shell-empty">
+        <div className="pdf-viewer-topbar">
+          <div>
+            <span className="pdf-viewer-eyebrow">Document viewer</span>
+            <h3>{docId}</h3>
+          </div>
+        </div>
+        <div className="pdf-error">
+          <AlertTriangleIcon />
+          <h4>Error loading PDF</h4>
+          <p>{error}</p>
+        </div>
+      </div>
+    );
   }
 
-  return <div ref={containerRef} style={{ padding: 12 }} />;
+  return (
+    <div className="pdf-viewer-shell">
+      <div className="pdf-viewer-topbar">
+        <div>
+          <span className="pdf-viewer-eyebrow">Document viewer</span>
+          <h3>{docId}</h3>
+        </div>
+        <div className="pdf-viewer-status">Rendered pages: {renderedPages || "…"}</div>
+      </div>
+      <div ref={containerRef} className="pdf-canvas-stage" />
+    </div>
+  );
 }

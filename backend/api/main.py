@@ -10,6 +10,7 @@ flags are set in config.py (imported on module load).
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import threading
@@ -17,7 +18,22 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
+# Load .env.langfuse early so config.py sees the env vars when it imports.
+def _bootstrap_langfuse_env() -> None:
+    env_file = Path(".env.langfuse")
+    if not env_file.exists():
+        return
+    with env_file.open() as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _key, _, _val = _line.partition("=")
+            os.environ.setdefault(_key.strip(), _val.strip())
+
+_bootstrap_langfuse_env()
+
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -47,8 +63,25 @@ app.include_router(admin_routes.router)
 
 @app.on_event("startup")
 def _startup() -> None:
+    # Load Langfuse env vars before config reads them
+    _load_langfuse_env()
     init_db()
     iam.init_seed_data()
+
+
+def _load_langfuse_env() -> None:
+    """Load .env.langfuse into os.environ if it exists (must run before config import)."""
+    import os
+    env_file = Path(".env.langfuse")
+    if not env_file.exists():
+        return
+    with env_file.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
 
 
 def get_current_user(request: Request) -> iam.User:
@@ -89,6 +122,7 @@ def _ensure_bm25_loaded() -> None:
 class ChatRequest(BaseModel):
     question: str
     active_lang_codes: Optional[list[str]] = None
+    doc_type_filter: Optional[list[str]] = None  # user-selected type filter; None = all allowed
 
 
 class ChatResponse(BaseModel):
@@ -105,11 +139,27 @@ class IngestJobStatus(BaseModel):
     status: str  # "queued" | "running" | "done" | "error"
     doc_id: str
     n_chunks: Optional[int] = None
+    doc_type: Optional[str] = None
+    doc_type_confidence: Optional[float] = None
+    parser_name: Optional[str] = None
+    chunker_name: Optional[str] = None
+    is_scanned: Optional[bool] = None
     error: Optional[str] = None
 
 
 # In-memory job tracking (pilot scope; one process). Keyed by job_id.
 _ingest_jobs: dict[str, IngestJobStatus] = {}
+
+
+@app.get("/api/doc-types")
+def list_doc_types(user: iam.User = Depends(get_current_user)):
+    """Return active document types. Filtered to the user's allowed set if restricted."""
+    from backend.services.admin import list_doc_types_admin
+    all_active = list_doc_types_admin(active_only=True)
+    allowed = user.allowed_doc_type_ids
+    if allowed is None:
+        return all_active
+    return [dt for dt in all_active if dt["id"] in allowed]
 
 
 @app.get("/api/config")
@@ -124,15 +174,20 @@ def get_config():
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
-    from backend.graph.graph import run as graph_run
+def chat(req: ChatRequest, user: iam.User = Depends(get_current_user)):
+    from backend.services.observability import trace_run
 
     _ensure_bm25_loaded()
 
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="question must not be empty")
 
-    state = graph_run(req.question, active_lang_codes=req.active_lang_codes or ["de"])
+    state = trace_run(
+        req.question,
+        active_lang_codes=req.active_lang_codes or ["de"],
+        allowed_doc_type_ids=user.allowed_doc_type_ids,
+        user_id=user.id,
+    )
 
     return ChatResponse(
         answer=state.get("answer", ""),
@@ -254,8 +309,6 @@ def revoke_share_endpoint(conversation_id: str, target_user_id: str, user: iam.U
 def post_message(conversation_id: str, req: ChatRequest, user: iam.User = Depends(get_current_user)):
     """Conversation-scoped chat: access check -> rate limit -> run graph with
     history -> persist both turns (encrypted, signed) -> return ChatResponse."""
-    from backend.graph.graph import run as graph_run
-
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="question must not be empty")
 
@@ -270,8 +323,28 @@ def post_message(conversation_id: str, req: ChatRequest, user: iam.User = Depend
     except RateLimitError as e:
         raise HTTPException(status_code=429, detail=str(e))
 
+    # Compute effective doc-type filter: intersection of what the user is allowed
+    # to see with what they chose to filter by. Neither can expand the other.
+    effective_doc_types: list[str] | None
+    if user.allowed_doc_type_ids is not None and req.doc_type_filter:
+        effective_doc_types = [i for i in req.doc_type_filter if i in user.allowed_doc_type_ids]
+    elif user.allowed_doc_type_ids is not None:
+        effective_doc_types = user.allowed_doc_type_ids
+    elif req.doc_type_filter:
+        effective_doc_types = req.doc_type_filter
+    else:
+        effective_doc_types = None  # unrestricted
+
     _ensure_bm25_loaded()
-    state = graph_run(req.question, active_lang_codes=req.active_lang_codes or ["de"], history=history)
+    from backend.services.observability import trace_run
+    state = trace_run(
+        req.question,
+        active_lang_codes=req.active_lang_codes or ["de"],
+        history=history,
+        allowed_doc_type_ids=effective_doc_types,
+        user_id=user.id,
+        conversation_id=conversation_id,
+    )
 
     conversations.add_message(conversation_id, "user", req.question, state.get("query_lang", "de"))
     conversations.add_message(
@@ -289,18 +362,37 @@ def post_message(conversation_id: str, req: ChatRequest, user: iam.User = Depend
     )
 
 
-def _run_ingest_job(job_id: str, tmp_path: Path) -> None:
+def _run_ingest_job(
+    job_id: str, tmp_path: Path,
+    doc_type_id: str | None = None,
+    user_id: str = "",
+    original_filename: str = "",
+    client_ip: str = "",
+    user_agent: str = "",
+) -> None:
     from backend.tools.pipeline import ingest
+    import json as _json
 
     job = _ingest_jobs[job_id]
     job.status = "running"
     try:
         with _ingest_lock:
-            n = ingest(str(tmp_path))
+            result = ingest(str(tmp_path), doc_type_id=doc_type_id)
+            if result.is_scanned:
+                job.status = "error"
+                job.error = "PDF is scanned (no text layer). OCR path not yet built."
+                job.is_scanned = True
+                job.doc_type = result.doc_type
+                return
             _refresh_bm25_indices()
         global _bm25_loaded
         _bm25_loaded = True
-        job.n_chunks = n
+        job.n_chunks = result.n_chunks
+        job.doc_type = result.doc_type
+        job.doc_type_confidence = result.doc_type_confidence
+        job.parser_name = result.parser_name
+        job.chunker_name = result.chunker_name
+        job.is_scanned = result.is_scanned
         job.status = "done"
     except Exception as e:
         job.status = "error"
@@ -308,31 +400,80 @@ def _run_ingest_job(job_id: str, tmp_path: Path) -> None:
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    # Audit log — record regardless of success/failure
+    try:
+        from backend.database import get_connection
+        import datetime
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO audit_log
+               (user_id, action, details_json, resource_type, decision, ip_address, created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (
+                user_id,
+                "ingest_document",
+                _json.dumps({
+                    "filename": original_filename,
+                    "doc_type_id": doc_type_id,
+                    "doc_type_resolved": job.doc_type,
+                    "n_chunks": job.n_chunks,
+                    "status": job.status,
+                    "error": job.error,
+                    "user_agent": user_agent,
+                }),
+                "document",
+                job.status,
+                client_ip,
+                datetime.datetime.utcnow().isoformat(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # audit failure never blocks the main result
+
 
 @app.post("/api/ingest", response_model=IngestJobStatus)
-def ingest_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    """Upload a PDF and run the ingestion pipeline (parse -> chunk -> embed -> index).
+def ingest_document(request: Request, background_tasks: BackgroundTasks,
+                    file: UploadFile = File(...),
+                    doc_type_id: Optional[str] = Query(default=None),
+                    user: iam.User = Depends(get_current_user)):
+    """Upload a document and run the ingestion pipeline (parse -> chunk -> embed -> index).
 
-    Runs in the background; poll GET /api/ingest/{job_id} for status. Re-uploading
-    a PDF with the same doc_id (filename stem) supersedes the prior version, per
-    CLAUDE.md versioning (is_current flag) — handled inside backend.tools.pipeline.ingest.
+    doc_type_id: admin-defined document type ID selected by the user at upload time.
+    Runs in the background; poll GET /api/ingest/{job_id} for status.
     """
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="only .pdf files are accepted")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="no filename provided")
 
-    # doc_id is derived from the filename stem (sanitized) so re-uploads
-    # consistently target the same document for versioning.
+    suffix = Path(file.filename).suffix.lower()
+    _ALLOWED_EXTENSIONS = {
+        ".pdf", ".docx", ".xlsx", ".xls", ".csv", ".txt", ".md",
+        ".html", ".htm", ".eml", ".png", ".jpg", ".jpeg", ".tiff", ".tif",
+    }
+    if suffix not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"unsupported file type: {suffix}")
+
     doc_id = re.sub(r"[^A-Za-z0-9_-]", "_", Path(file.filename).stem) or "doc"
 
     staging_dir = Path(ORIGINALS_DIR) / "_staging"
     staging_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = staging_dir / f"{doc_id}.pdf"
+    tmp_path = staging_dir / f"{doc_id}{suffix}"
     with tmp_path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    # Capture upload metadata for audit log
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() \
+        or (request.client.host if request.client else "unknown")
+    user_agent = request.headers.get("user-agent", "")
+
     job_id = uuid.uuid4().hex
-    _ingest_jobs[job_id] = IngestJobStatus(job_id=job_id, status="queued", doc_id=doc_id)
-    background_tasks.add_task(_run_ingest_job, job_id, tmp_path)
+    _ingest_jobs[job_id] = IngestJobStatus(
+        job_id=job_id, status="queued", doc_id=doc_id, doc_type=doc_type_id
+    )
+    background_tasks.add_task(
+        _run_ingest_job, job_id, tmp_path, doc_type_id, user.id, file.filename, client_ip, user_agent
+    )
     return _ingest_jobs[job_id]
 
 

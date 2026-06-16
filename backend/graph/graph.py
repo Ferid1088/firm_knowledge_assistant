@@ -2,12 +2,12 @@
 from __future__ import annotations
 from langgraph.graph import StateGraph, END
 
-from src.query.graph.state import RAGState
-from src.query.graph.nodes import (
+from backend.graph.state import RAGState
+from backend.graph.nodes import (
     prepare_query, retrieve, rerank,
     score_confidence, escalate, answer, abstain,
 )
-from config import MAX_ATTEMPTS, CONFIDENCE_THRESHOLD, CONFIDENCE_GAP_MIN
+from backend.config import MAX_ATTEMPTS, CONFIDENCE_THRESHOLD
 
 
 def _route_confidence(state: RAGState) -> str:
@@ -54,11 +54,15 @@ def build_graph():
 rag_graph = build_graph()
 
 
-def run(question: str, active_lang_codes: list[str] | None = None) -> RAGState:
+def run(question: str, active_lang_codes: list[str] | None = None,
+        history: list[dict] | None = None,
+        allowed_doc_type_ids: list[str] | None = None) -> RAGState:
     """Run the full pipeline and return the final state."""
     init: RAGState = {
         "question": question,
         "active_lang_codes": active_lang_codes or ["de", "en"],
         "attempts": 0,
+        "history": history or [],
+        "allowed_doc_type_ids": allowed_doc_type_ids,
     }
     return rag_graph.invoke(init)

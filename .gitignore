@@ -8,8 +8,12 @@ samples/*.pdf
 .qdrant/
 *.log
 .env
+.env.langfuse
+.logs/
+.vscode/
+.claude/settings.json
 query_wf.md
 /docs/
-/originals/
 /raw_knowlegebase/
-
+/database/
+CLAUDE.md

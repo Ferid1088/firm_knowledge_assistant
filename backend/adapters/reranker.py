@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from config import RERANKER_MODEL_ID, EMBED_MAX_SEQ
+from backend.config import RERANKER_MODEL_ID, EMBED_MAX_SEQ
 
 _PREFIX = (
     "<|im_start|>system\nJudge whether the Document meets the requirements based on "

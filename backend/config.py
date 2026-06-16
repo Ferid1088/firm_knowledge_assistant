@@ -103,3 +103,14 @@ RATE_LIMIT_CONVERSATIONS_PER_DAY = 10
 
 # ── Conversation context window ──────────────────────────────────────────────
 MAX_CONTEXT_TOKENS = 4096  # history token budget for ConversationContext
+
+# ── Observability (Langfuse, self-hosted only — CLAUDE.md: never cloud) ─────
+# Values read from .env.langfuse at startup; defaults keep tracing OFF if the
+# file is absent (safe for air-gapped deployments without Langfuse running).
+def _env_bool(key: str, default: bool = False) -> bool:
+    return os.environ.get(key, str(default)).lower() in ("1", "true", "yes")
+
+LANGFUSE_ENABLED  = _env_bool("LANGFUSE_ENABLED", False)
+LANGFUSE_HOST     = os.environ.get("LANGFUSE_HOST",       "http://localhost:3001")
+LANGFUSE_PUBLIC_KEY = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SECRET_KEY = os.environ.get("LANGFUSE_SECRET_KEY", "")

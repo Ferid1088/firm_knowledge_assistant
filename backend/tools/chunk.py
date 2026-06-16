@@ -19,7 +19,7 @@ from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTok
 from docling_core.types.doc import DocItemLabel
 from transformers import AutoTokenizer
 
-from config import EMBED_MODEL_ID, CHUNK_MAX_TOKENS
+from backend.config import EMBED_MODEL_ID, CHUNK_MAX_TOKENS
 
 
 # ── Recommendation / clause detection heuristics ──────────────────────────

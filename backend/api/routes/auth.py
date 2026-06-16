@@ -26,6 +26,8 @@ def _user_response(user: iam.User) -> dict:
         "role_name": user.role_name,
         "department_id": user.department_id,
         "permissions": user.permissions,
+        "must_change_password": user.must_change_password,
+        "allowed_doc_type_ids": user.allowed_doc_type_ids,  # None = all types
     }
 
 
@@ -198,7 +200,7 @@ def change_password(req: ChangePasswordRequest, request: Request):
     conn = get_connection()
     try:
         conn.execute(
-            "UPDATE users SET password_hash=?, updated_at=? WHERE id=?",
+            "UPDATE users SET password_hash=?, must_change_password=0, updated_at=? WHERE id=?",
             (new_hash, datetime.now(timezone.utc).isoformat(), raw["id"]),
         )
         conn.commit()

@@ -84,9 +84,6 @@ export default function SetupRequiredPage() {
             {loading ? "Creating account…" : "Create admin account"}
           </button>
         </form>
-        <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 16, textAlign: "center" }}>
-          Or run <code style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>python scripts/setup.py</code> on the server.
-        </p>
       </div>
     </div>
   );

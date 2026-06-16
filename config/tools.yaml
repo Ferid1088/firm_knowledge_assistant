@@ -1,0 +1,112 @@
+# Tool configuration — controls which tools are enabled and their runtime parameters.
+# All tools listed here must also be registered via the ToolRegistry (discover_tools
+# or explicit registration). A tool absent from this file is treated as enabled with
+# default parameters.
+
+tools:
+  # ── FILE READERS ────────────────────────────────────────────────────────────
+
+  reader:pdf:
+    enabled: true
+    config:
+      timeout: 60          # seconds per file
+      max_file_size_mb: 100
+      device: cpu
+
+  reader:docx:
+    enabled: true
+    config:
+      timeout: 30
+      max_file_size_mb: 50
+      device: cpu
+
+  reader:xlsx:
+    enabled: true
+    config:
+      timeout: 30
+      max_file_size_mb: 50
+      device: cpu
+
+  reader:csv:
+    enabled: true
+    config:
+      timeout: 15
+      max_file_size_mb: 100
+      device: cpu
+
+  reader:txt:
+    enabled: true
+    config:
+      timeout: 10
+      max_file_size_mb: 20
+      device: cpu
+
+  reader:eml:
+    enabled: true
+    config:
+      timeout: 15
+      max_file_size_mb: 25
+      device: cpu
+
+  reader:image:
+    enabled: true
+    config:
+      timeout: 30
+      max_file_size_mb: 50
+      device: cpu
+
+  reader:mbox:
+    enabled: true
+    config:
+      timeout: 60
+      max_file_size_mb: 200
+      device: cpu
+
+  reader:msg:
+    enabled: true
+    config:
+      timeout: 15
+      max_file_size_mb: 25
+      device: cpu
+
+  reader:svg:
+    enabled: true
+    config:
+      timeout: 10
+      max_file_size_mb: 10
+      device: cpu
+
+  reader:dwg:
+    enabled: false          # no open-source DWG reader available; stub only
+    config:
+      timeout: 30
+      max_file_size_mb: 100
+      device: cpu
+
+  reader:dxf:
+    enabled: true
+    config:
+      timeout: 30
+      max_file_size_mb: 100
+      device: cpu
+
+  reader:odt:
+    enabled: true
+    config:
+      timeout: 30
+      max_file_size_mb: 50
+      device: cpu
+
+  reader:ods:
+    enabled: true
+    config:
+      timeout: 30
+      max_file_size_mb: 50
+      device: cpu
+
+  reader:pptx:
+    enabled: true
+    config:
+      timeout: 60
+      max_file_size_mb: 100
+      device: cpu

@@ -187,6 +187,62 @@ def set_role_permissions(role_id: str, req: SetPermissionsRequest, request: Requ
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── Document types ─────────────────────────────────────────────────────────────
+
+@router.get("/doc-types")
+def list_doc_types(request: Request, active_only: bool = False):
+    _get_admin_user(request)
+    return admin_svc.list_doc_types_admin(active_only=active_only)
+
+
+class CreateDocTypeRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+@router.post("/doc-types", status_code=201)
+def create_doc_type(req: CreateDocTypeRequest, request: Request):
+    _get_admin_user(request)
+    try:
+        return admin_svc.create_doc_type_admin(req.name, req.description)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class UpdateDocTypeRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+
+
+@router.patch("/doc-types/{dt_id}")
+def update_doc_type(dt_id: str, req: UpdateDocTypeRequest, request: Request):
+    _get_admin_user(request)
+    try:
+        return admin_svc.update_doc_type_admin(dt_id, req.name, req.description, req.status)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── User doc type permissions ───────────────────────────────────────────────────
+
+@router.get("/users/{user_id}/doc-type-permissions")
+def get_user_doc_type_perms(user_id: str, request: Request):
+    _get_admin_user(request)
+    dt_ids = admin_svc.get_user_doc_type_ids(user_id)
+    return {"user_id": user_id, "allowed_doc_type_ids": dt_ids}
+
+
+class SetDocTypePermsRequest(BaseModel):
+    doc_type_ids: list[str]
+
+
+@router.put("/users/{user_id}/doc-type-permissions")
+def set_user_doc_type_perms(user_id: str, req: SetDocTypePermsRequest, request: Request):
+    _get_admin_user(request)
+    return admin_svc.set_user_doc_type_permissions(user_id, req.doc_type_ids)
+
+
 # ── Permissions ────────────────────────────────────────────────────────────────
 
 @router.get("/permissions")

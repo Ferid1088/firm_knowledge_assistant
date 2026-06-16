@@ -22,6 +22,8 @@ class User:
     role_id: str
     role_name: str
     permissions: list[str] = field(default_factory=list)
+    must_change_password: bool = False
+    allowed_doc_type_ids: list[str] | None = None  # None = all active types allowed
 
     @property
     def is_superadmin(self) -> bool:
@@ -94,6 +96,16 @@ def _permissions_for_role(role_id: str, conn) -> list[str]:
     return [r[0] for r in rows]
 
 
+def _doc_type_ids_for_user(user_id: str, conn) -> list[str] | None:
+    rows = conn.execute(
+        "SELECT doc_type_id FROM user_doc_type_permissions WHERE user_id = ?",
+        (user_id,),
+    ).fetchall()
+    if not rows:
+        return None  # no restrictions
+    return [r[0] for r in rows]
+
+
 def get_user(user_id: str) -> User | None:
     conn = get_connection()
     try:
@@ -104,10 +116,13 @@ def get_user(user_id: str) -> User | None:
         if row is None:
             return None
         perms = _permissions_for_role(row["role_id"], conn)
+        doc_type_ids = _doc_type_ids_for_user(row["id"], conn)
         return User(
             id=row["id"], username=row["username"], name=row["name"],
             department_id=row["department_id"], role_id=row["role_id"],
             role_name=row["role_name"], permissions=perms,
+            must_change_password=bool(row["must_change_password"]),
+            allowed_doc_type_ids=doc_type_ids,
         )
     finally:
         conn.close()

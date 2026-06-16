@@ -11,7 +11,7 @@ from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
 import pypdfium2 as pdfium
 
-from config import ORIGINALS_DIR
+from backend.config import ORIGINALS_DIR
 
 # Minimum characters per page to consider it "has a text layer"
 _MIN_TEXT_CHARS = 20
@@ -44,7 +44,7 @@ def store_original(pdf_path: str, doc_id: str) -> str:
     """Copy the source PDF into the originals store. Returns destination path.
 
     Re-ingesting a doc_id overwrites the stored original with the new version
-    (the new version's chunks supersede the old via is_current, see src.store).
+    (the new version's chunks supersede the old via is_current, see backend.services.store).
     """
     dest = Path(ORIGINALS_DIR) / f"{doc_id}.pdf"
     dest.parent.mkdir(parents=True, exist_ok=True)

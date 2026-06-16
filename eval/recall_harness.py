@@ -15,11 +15,11 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import QDRANT_DIR, RETRIEVE_DEEP_POOL
-from src.common.embed import load_embedder
-from src.common.store import get_collection, search as store_search
-from src.ingest.pipeline import rebuild_bm25_indices
-from src.common.language import registry
+from backend.config import QDRANT_DIR, RETRIEVE_DEEP_POOL
+from backend.adapters.embedder import load_embedder
+from backend.services.store import get_collection, search as store_search
+from backend.tools.pipeline import rebuild_bm25_indices
+from backend.services.language import registry
 
 
 def load_eval_set(path: str = "eval/eval_set.json") -> list[dict]:

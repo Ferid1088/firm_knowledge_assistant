@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from config import EMBED_MODEL_ID, EMBED_QUERY_INSTRUCTION, EMBED_MAX_SEQ
+from backend.config import EMBED_MODEL_ID, EMBED_QUERY_INSTRUCTION, EMBED_MAX_SEQ
 
 _EMBEDDER: SentenceTransformer | None = None
 
@@ -27,7 +27,6 @@ def embed_texts(embedder: SentenceTransformer, texts: list[str]) -> np.ndarray:
     avoid OOM on the attention mask (spec: embed a contextual description for
     oversize atomic leaves — that happens in pipeline.py; this is the safety net).
     """
-    from config import EMBED_MAX_SEQ
     tokenizer = embedder.tokenizer
     safe_texts = []
     for t in texts:

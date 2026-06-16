@@ -77,8 +77,8 @@ def create_user_admin(username: str, password: str, name: str,
     try:
         conn.execute(
             """INSERT INTO users (id, username, password_hash, name, department_id, role_id,
-               is_active, mfa_enabled, mfa_secret, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,1,0,NULL,?,?)""",
+               is_active, mfa_enabled, mfa_secret, must_change_password, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,1,0,NULL,1,?,?)""",
             (user_id, username, pw_hash, name, department_id, role_id, now, now),
         )
         conn.commit()
@@ -114,7 +114,7 @@ def reset_password_admin(user_id: str, new_password: str) -> None:
     conn = get_connection()
     try:
         conn.execute(
-            "UPDATE users SET password_hash=?, updated_at=? WHERE id=?",
+            "UPDATE users SET password_hash=?, must_change_password=1, updated_at=? WHERE id=?",
             (pw_hash, _now(), user_id),
         )
         conn.commit()
@@ -281,6 +281,106 @@ def set_role_permissions_admin(role_id: str, permission_ids: list[str]) -> dict:
     finally:
         conn.close()
     return update_role_admin(role_id)
+
+
+# ── Document types ────────────────────────────────────────────────────────────
+
+def list_doc_types_admin(active_only: bool = False) -> list[dict]:
+    conn = get_connection()
+    try:
+        where = "WHERE status = 'active'" if active_only else ""
+        rows = conn.execute(
+            f"SELECT * FROM document_types {where} ORDER BY name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def create_doc_type_admin(name: str, description: str = "") -> dict:
+    """Create a new document type; code is auto-assigned as the next unique integer."""
+    now = _now()
+    conn = get_connection()
+    try:
+        # Find next integer code (max existing + 1, or 1 if table is empty)
+        row_max = conn.execute("SELECT MAX(CAST(code AS INTEGER)) FROM document_types").fetchone()
+        next_code = (row_max[0] or 0) + 1
+        code = str(next_code)
+        dt_id = f"dt-{next_code}"
+        conn.execute(
+            "INSERT INTO document_types (id, name, code, description, status, created_at) VALUES (?,?,?,?,'active',?)",
+            (dt_id, name, code, description, now),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM document_types WHERE id = ?", (dt_id,)).fetchone()
+        return dict(row)
+    except Exception as e:
+        raise ValueError(str(e))
+    finally:
+        conn.close()
+
+
+def update_doc_type_admin(dt_id: str, name: str | None = None,
+                          description: str | None = None, status: str | None = None) -> dict:
+    updates: dict = {}
+    if name is not None:
+        updates["name"] = name
+    if description is not None:
+        updates["description"] = description
+    if status is not None:
+        if status not in ("active", "archived"):
+            raise ValueError("status must be 'active' or 'archived'")
+        updates["status"] = status
+    conn = get_connection()
+    try:
+        if updates:
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            conn.execute(
+                f"UPDATE document_types SET {set_clause} WHERE id = ?",
+                list(updates.values()) + [dt_id],
+            )
+            conn.commit()
+        row = conn.execute("SELECT * FROM document_types WHERE id = ?", (dt_id,)).fetchone()
+        if row is None:
+            raise ValueError("Document type not found")
+        return dict(row)
+    finally:
+        conn.close()
+
+
+# ── User document type permissions ────────────────────────────────────────────
+
+def get_user_doc_type_ids(user_id: str) -> list[str] | None:
+    """Return list of allowed doc_type_ids for user, or None if unrestricted (all active types)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT doc_type_id FROM user_doc_type_permissions WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        if not rows:
+            return None  # no restrictions → all active types
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+def set_user_doc_type_permissions(user_id: str, doc_type_ids: list[str]) -> dict:
+    """Replace the user's doc type permissions (empty list = unrestricted)."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM user_doc_type_permissions WHERE user_id = ?", (user_id,)
+        )
+        for dt_id in doc_type_ids:
+            conn.execute(
+                "INSERT OR IGNORE INTO user_doc_type_permissions (user_id, doc_type_id) VALUES (?,?)",
+                (user_id, dt_id),
+            )
+        conn.commit()
+        return {"user_id": user_id, "allowed_doc_type_ids": doc_type_ids or None}
+    finally:
+        conn.close()
 
 
 # ── Permissions ───────────────────────────────────────────────────────────────

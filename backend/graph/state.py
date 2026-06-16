@@ -7,6 +7,7 @@ class RAGState(TypedDict, total=False):
     # Input
     question: str
     active_lang_codes: list[str]       # e.g. ["de", "en"]
+    history: list[dict]                # prior conversation turns [{role, text}], oldest-first
 
     # Language
     query_lang: str                    # detected language of query
@@ -30,6 +31,9 @@ class RAGState(TypedDict, total=False):
     answer: str
     claims: list[dict]                 # [{text, source, quote, verified}]
     artifact_chunks: list[dict]        # UI only: [{chunk_id, text, boxes, address, source}]
+
+    # Access control
+    allowed_doc_type_ids: Optional[list[str]]  # None = unrestricted; set per request from user session
 
     # Internals
     escalation_reason: str
