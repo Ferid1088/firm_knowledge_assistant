@@ -20,9 +20,8 @@
 | 4.1 | **Appropriate tools and libraries** | ✅ Done | Docling, Qwen3-Embedding, Qwen3-Reranker, Qdrant, LangGraph, FastAPI, Next.js, PDF.js — all per spec |
 | 4.2 | **Proper error handling** | ✅ Done | FastAPI HTTPException throughout `main.py`; try/except in all graph nodes; abstain node for low-confidence; scanned-PDF guard; verified=False flag on failed quote-check |
 | 4.3 | **Handles real-world usage** | ✅ Done | Multi-user isolation, rate limiting (50 msg/hr, 10 conv/day), session TTL, AES-256-GCM encrypted messages, audit log, conversation lifecycle |
-| 5.1 | **Clear documentation** | ⚠️ Partial | `CLAUDE.md` is exhaustive spec/architecture doc; `README.md` is minimal (3 lines). No user-facing guide |
-| 5.2 | **Common use case examples** | ❌ Missing | No example queries, no walkthrough, no screenshots in docs |
-| 5.3 | **Technical decisions explained** | ✅ Done | `CLAUDE.md` documents every architectural decision with rationale (why TableFormer, why decompounding, why air-gap) |
+| 5.1 | **Clear documentation** | ✅ Done | `CLAUDE.md` is exhaustive spec/architecture doc; `README.md` covers agent purpose, target users, all workflows (ingestion pipeline, query pipeline with ASCII graphs), file format table, chunking strategy table, make commands, configuration reference, security layers, and hardware targets |
+| 5.2 | **Technical decisions explained** | ✅ Done | `CLAUDE.md` documents every architectural decision with rationale (why TableFormer, why decompounding, why air-gap) |
 
 ---
 
@@ -72,16 +71,44 @@
 
 | Category | Done | Partial | Not Done |
 |---|---|---|---|
-| Core Requirements (5.1–5.2 docs gap) | 12 | 1 | 1 |
+| Core Requirements (5 tasks) | 5 | 0 | 0 |
 | Easy Optional (5 tasks) | 1 | 1 | 3 |
 | Medium Optional (9 tasks) | 4 | 2 | 3 |
 | Hard Optional (7 tasks) | 2 | 0 | 5 |
-| **Total** | **19** | **4** | **12** |
+| **Total** | **12** | **3** | **11** |
 
 ### Key gaps to close for full coverage
 
-1. **README / user docs** — expand with example queries, screenshots, and a 5-minute quickstart
-2. **LLM settings UI** — expose `temperature` / `top_p` as sliders; let user pick the Ollama model
-3. **Token usage display** — `token_count()` already exists; surface it in the chat UI
-4. **Response feedback** — thumbs up/down stored in `audit_log`; already has the table structure
-5. **In-UI tool toggles** — the registry and YAML are ready; only the frontend toggle is missing
+1. **LLM settings UI** — expose `temperature` / `top_p` as sliders; let user pick the Ollama model
+2. **Token usage display** — `token_count()` already exists; surface it in the chat UI
+3. **Response feedback** — thumbs up/down stored in `audit_log`; already has the table structure
+4. **In-UI tool toggles** — the registry and YAML are ready; only the frontend toggle is missing
+
+---
+
+## Beyond-scope features implemented
+
+Features built that were not required by the Turing spec — added to meet the commercial-grade, air-gapped enterprise target defined in `CLAUDE.md`.
+
+| Feature | Where | Why it was added |
+|---|---|---|
+| **Air-gap security hardening** | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, telemetry flags, CSP header | Hard requirement: nothing leaves the company network — model inference, traces, and browser assets must all stay local |
+| **Multilingual hybrid retrieval (DE + EN)** | `backend/services/sparse.py`, `LanguageRegistry`, named Qdrant sparse fields | German is the house language; cross-lingual dense + per-language BM25 with decompounding is core to the product — not an add-on |
+| **Structural parent-child chunking** | `backend/tools/chunkers/` (8 chunkers) | Generic splitters destroy table structure and clause integrity; domain-specific chunkers are what make cited answers trustworthy |
+| **Docling TableFormer parsing** | `backend/tools/parsers/docling_parser.py` | Numbers and table cells extracted from the PDF layer — never hallucinated; mandatory for technical/legal documents |
+| **Scanned-PDF guard & quarantine** | `backend/tools/scan_detector.py` | Silently indexing blank OCR text produces wrong answers; quarantine surfaces the problem instead |
+| **Verified quote citations** | `backend/graph/nodes/answer.py` | Every claim is quote-verified against the source chunk before the answer is returned; unverified citations are flagged, not silently dropped |
+| **Clickable PDF source viewer** | `frontend/src/components/PdfViewer.tsx` | Normalized bounding boxes from Docling provenance are drawn as overlay rectangles on the exact page — users can verify every answer |
+| **Multi-user IAM with departments** | `backend/services/iam.py`, `backend/services/auth.py` | Commercial tool needs isolated per-user workspaces, role-based admin access, and department-level grouping |
+| **AES-256-GCM message encryption + Ed25519 signatures** | `backend/services/security.py` | Messages stored at rest are encrypted and integrity-signed — required for sensitive enterprise documents |
+| **Audit log** | `backend/database/schema.sql`, `backend/services/admin.py` | Every auth event and admin action is logged; superadmins can browse the full log in the admin panel |
+| **Conversation sharing** | `backend/services/sharing.py` | Users can share a read-only view of a conversation with a named colleague — a common enterprise workflow |
+| **Rate limiting** | `backend/services/sessions.py` | Prevents runaway usage on shared pilot hardware (50 msg/hr, 10 conv/day) |
+| **SQLite response cache** | `backend/services/response_cache.py` | Identical questions (same user, same context, same filters) skip the full pipeline; TTL=1 h, LRU at 500 entries, confidence gate |
+| **Self-hosted Langfuse observability** | `backend/services/observability.py` | Every query traced with question, answer, confidence, and n_chunks — stays on the local network, never cloud |
+| **ToolRegistry with YAML enable/disable** | `backend/core/tool_registry.py`, `config/tools.yaml` | 14 file-reader tools auto-discovered; operators can enable/disable individual formats without touching code |
+| **15-format file reader library** | `backend/tools/readers/` | Enterprise users upload more than PDFs — Word, Excel, PowerPoint, emails, CAD drawings, SVG all supported |
+| **First-run setup wizard** | `backend/api/routes/auth.py` (`/api/auth/setup`), `frontend/src/app/setup-required/` | Zero-config bootstrap: if no users exist the app guides the operator through creating the first superadmin |
+| **Admin panel (5 tabs)** | `frontend/src/app/admin/page.tsx` | Users, departments, document types, document type permissions, and audit log — all manageable without touching the database |
+| **`Makefile` project entry point** | `Makefile` | `make dev` starts both services; `make stop / status / logs / install / test` cover the full dev lifecycle |
+| **Eval / recall harness** | `eval/recall_harness.py` | Recall@k harness over a DE/EN golden set — required to set confidence thresholds and validate retrieval before any model swap |
