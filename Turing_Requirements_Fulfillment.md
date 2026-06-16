@@ -47,7 +47,7 @@
 | M3 | Implement long-term or short-term memory | ✅ Done | Short-term: `translated_queries` cached in `RAGState` per request. Long-term: full encrypted conversation history in SQLite; `ConversationContext` feeds prior turns into the LLM prompt within `MAX_CONTEXT_TOKENS` budget |
 | M4 | One extra function tool calling an external API | ❌ Not done | All tools are local/air-gapped by design (CLAUDE.md hard requirement). No external API call is intentional. |
 | M5 | User authentication and personalisation | ✅ Done | Cookie-based sessions, PBKDF2 password hashing, login/logout/change-password pages, per-user conversation isolation, department-based roles, admin panel with full IAM |
-| M6 | Caching mechanism for frequent responses | ⚠️ Partial | Query translation cached in graph state (`translated_queries`); BM25 index cached via `lru_cache` in `sparse.py`. No response-level cache |
+| M6 | Caching mechanism for frequent responses | ✅ Done | SQLite response cache in `backend/services/response_cache.py`; keyed on SHA-256(question + conversation_id + user_id + lang_codes + doc_types); TTL=1h, LRU eviction at 500 entries, confidence gate; wired into `post_message()` in `main.py`; config flags in `backend/config.py` |
 | M7 | Feedback loop — users rate responses | ❌ Not done | No thumbs-up/down or rating UI; no feedback storage |
 | M8 | 2 extra function tools + UI to enable/disable | ⚠️ Partial | Tool registry (`backend/core/tool_registry.py`) with enable/disable per `config/tools.yaml`; 14 file-reader tools registered. No in-UI toggle for the end-user |
 | M9 | Multi-model support (OpenAI, Anthropic, etc.) | ❌ Not done | Single local Ollama backend; no multi-provider abstraction. Intentionally local-only per CLAUDE.md |
@@ -74,9 +74,9 @@
 |---|---|---|---|
 | Core Requirements (5.1–5.2 docs gap) | 12 | 1 | 1 |
 | Easy Optional (5 tasks) | 0 | 1 | 4 |
-| Medium Optional (9 tasks) | 3 | 3 | 3 |
+| Medium Optional (9 tasks) | 4 | 2 | 3 |
 | Hard Optional (7 tasks) | 2 | 0 | 5 |
-| **Total** | **17** | **5** | **13** |
+| **Total** | **18** | **4** | **13** |
 
 ### Key gaps to close for full coverage
 

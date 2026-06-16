@@ -126,6 +126,22 @@ CREATE TABLE IF NOT EXISTS user_doc_type_permissions (
     PRIMARY KEY (user_id, doc_type_id)
 );
 
+-- Response cache: skip full pipeline on repeated identical queries
+CREATE TABLE IF NOT EXISTS response_cache (
+    cache_key       TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    user_id         TEXT NOT NULL,
+    query_hash      TEXT NOT NULL,
+    response_json   TEXT NOT NULL,
+    confidence      REAL NOT NULL,
+    created_at      TEXT NOT NULL,
+    accessed_at     TEXT NOT NULL,
+    hit_count       INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_response_cache_accessed
+    ON response_cache(accessed_at);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         TEXT NOT NULL,

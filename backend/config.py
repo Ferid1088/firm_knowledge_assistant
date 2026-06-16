@@ -114,3 +114,11 @@ LANGFUSE_ENABLED  = _env_bool("LANGFUSE_ENABLED", False)
 LANGFUSE_HOST     = os.environ.get("LANGFUSE_HOST",       "http://localhost:3001")
 LANGFUSE_PUBLIC_KEY = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.environ.get("LANGFUSE_SECRET_KEY", "")
+
+# ── Response cache (SQLite-backed, local only) ────────────────────────────
+# Identical queries (same question + conversation + user + lang filters) are
+# served from cache without running the full RAG pipeline.
+CACHE_ENABLED        = True
+CACHE_TTL_SECONDS    = 3600   # seconds until a cached entry expires; 0 = no expiry
+CACHE_MAX_ENTRIES    = 500    # LRU eviction kicks in above this count
+CACHE_MIN_CONFIDENCE = 0.55   # only cache answers at or above this confidence score

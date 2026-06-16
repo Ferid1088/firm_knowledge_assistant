@@ -336,15 +336,34 @@ def post_message(conversation_id: str, req: ChatRequest, user: iam.User = Depend
         effective_doc_types = None  # unrestricted
 
     _ensure_bm25_loaded()
+
     from backend.services.observability import trace_run
-    state = trace_run(
-        req.question,
-        active_lang_codes=req.active_lang_codes or ["de"],
-        history=history,
-        allowed_doc_type_ids=effective_doc_types,
-        user_id=user.id,
-        conversation_id=conversation_id,
-    )
+    from backend.services.response_cache import compute_key, get_cached, put_cache
+    from backend.config import CACHE_ENABLED
+
+    active_langs = req.active_lang_codes or ["de"]
+    cache_hit = False
+    _cache_key: str | None = None
+
+    if CACHE_ENABLED:
+        _cache_key = compute_key(req.question, conversation_id, user.id,
+                                 active_langs, effective_doc_types)
+        state = get_cached(_cache_key)
+        if state is not None:
+            cache_hit = True
+
+    if not cache_hit:
+        state = trace_run(
+            req.question,
+            active_lang_codes=active_langs,
+            history=history,
+            allowed_doc_type_ids=effective_doc_types,
+            user_id=user.id,
+            conversation_id=conversation_id,
+        )
+        if CACHE_ENABLED and _cache_key is not None:
+            put_cache(_cache_key, state, req.question, conversation_id, user.id,
+                      active_langs, effective_doc_types, float(state.get("confidence", 0)))
 
     conversations.add_message(conversation_id, "user", req.question, state.get("query_lang", "de"))
     conversations.add_message(
