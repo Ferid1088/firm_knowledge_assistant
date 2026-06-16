@@ -20,10 +20,10 @@ qdrant-client==1.16.1
 # ── Orchestration ──────────────────────────────────────────────────────────
 langgraph==0.6.11
 
-# ── Local LLM ─────────────────────────────────────────────────────────────
+# ── Local LLM ──────────────────────────────────────────────────────────────
 ollama==0.6.2
 
-# ── PDF rendering ─────────────────────────────────────────────────────────
+# ── PDF rendering ──────────────────────────────────────────────────────────
 pypdfium2==5.9.0
 numpy==2.0.2
 
@@ -34,18 +34,32 @@ pydantic==2.13.4
 python-multipart==0.0.20
 httpx==0.28.1
 
-# ── Multi-user persistence & security (local, air-gapped) ─────────────────
+# ── File readers (one per supported format) ────────────────────────────────
+# readers/docx.py
+python-docx==1.2.0
+# readers/xlsx.py
+openpyxl==3.1.5
+# readers/pptx.py
+python-pptx==1.0.2
+# readers/image.py (PIL.Image)
+Pillow==11.3.0
+# readers/dxf.py  — imported conditionally; install to enable DXF support
+ezdxf
+# readers/msg.py  — imported conditionally; install to enable Outlook .msg support
+extract-msg
+
+# ── Multi-user persistence & security (local, air-gapped) ──────────────────
 # Password hashing: stdlib hashlib.pbkdf2_hmac (no bcrypt dependency needed)
 # AES-256-GCM encryption + Ed25519 signing
 cryptography==49.0.0
 # Phase 2 MFA (imported early to surface missing-dep errors; not active yet)
 pyotp==2.10.0
 
-# ── Observability (self-hosted only — never Langfuse cloud) ───────────────
+# ── Observability (self-hosted only — never Langfuse cloud) ────────────────
 langfuse==2.60.10
 
-# ── Config file parsing ───────────────────────────────────────────────────
+# ── Config file parsing ────────────────────────────────────────────────────
 pyyaml==6.0.3
 
-# ── Tests ─────────────────────────────────────────────────────────────────
+# ── Tests ──────────────────────────────────────────────────────────────────
 pytest==8.4.2
