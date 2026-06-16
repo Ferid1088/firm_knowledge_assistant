@@ -44,6 +44,45 @@ def auth_status(request: Request):
     return {"authenticated": True, "user": _user_response(user)}
 
 
+class SetupRequest(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/api/auth/setup")
+def setup(req: SetupRequest, request: Request, response: Response):
+    """First-run only: create the first superadmin. Returns 409 if users already exist."""
+    if iam.count_users() > 0:
+        raise HTTPException(status_code=409, detail="Setup already complete")
+    if not req.username.strip():
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    iam.init_seed_data()
+    pw_hash = hash_password(req.password)
+    user = iam.create_user(
+        username=req.username.strip(),
+        password_hash=pw_hash,
+        name=req.username.strip().title(),
+        department_id="dept-tech",
+        role_id="superadmin",
+    )
+    audit.log_action(
+        user_id=user.id,
+        conversation_id=None,
+        action="admin_created_via_wizard",
+        resource_type="auth",
+        decision="allow",
+        ip_address=request.client.host if request.client else "unknown",
+    )
+    session_id = create_session(user.id, request.client.host if request.client else "unknown",
+                                request.headers.get("user-agent", ""))
+    response.set_cookie(key=_SESSION_COOKIE, value=session_id, httponly=True,
+                        samesite="strict", path="/", max_age=_SESSION_MAX_AGE)
+    return _user_response(user)
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
