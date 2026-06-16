@@ -46,11 +46,11 @@ ENABLE_SIBLING_EXPANSION = False # ±1 sibling context (OFF until eval shows lif
 ENABLE_HYDE = False              # deferred to GPU server
 
 # ── Vector store (Qdrant, local) ───────────────────────────────────────────
-QDRANT_DIR = ".qdrant"
+QDRANT_DIR = "database/qdrant"
 QDRANT_COLLECTION = "rag_chunks"
 
 # ── Originals store ────────────────────────────────────────────────────────
-ORIGINALS_DIR = "originals"   # source PDFs stored here by doc_id
+ORIGINALS_DIR = "raw_knowlegebase"   # source PDFs stored here by doc_id
 
 # ── Language registry ──────────────────────────────────────────────────────
 # AVAILABLE_LANGUAGES: languages whose analyzer + sparse field exist at ingestion time.
@@ -64,3 +64,42 @@ AVAILABLE_LANGUAGES = [
 
 # Default language for answers when none can be detected
 DEFAULT_ANSWER_LANG = "de"
+
+# ── Multi-user persistence (SQLite, local) ───────────────────────────────────
+DATABASE_PATH = "database/app.db"
+
+# ── Local key material (Vault / RSA-PKI substitutes — see security.py) ──────
+# Both files are generated on first run and stored 0600; never committed
+# (covered by the /database/ gitignore entry).
+MASTER_KEY_PATH = "database/keys/master.key"           # AES-256-GCM key-wrapping key
+SIGNING_KEY_PATH = "database/keys/signing_ed25519.pem"  # message-integrity signing key
+
+# ── IAM: tenant / departments / users ───────────────────────────────────────
+# Single-tenant pilot — kept as a field for forward compatibility with the
+# multi-tenant spec, never exposed in the UI.
+DEFAULT_TENANT_ID = "default"
+
+# Seed data inserted (idempotently) on startup. Real user/department management
+# would replace this list with an admin API/UI; for the pilot this is the only
+# place "who exists" is configured (config-driven, per CLAUDE.md).
+SEED_DEPARTMENTS = [
+    # (id, name, code)
+    ("dept-hr",   "HR",         "HR"),
+    ("dept-mgmt", "Management", "MGMT"),
+    ("dept-mkt",  "Marketing",  "MKT"),
+    ("dept-tech", "Technical",  "TECH"),
+]
+
+SEED_USERS = []  # Users created via scripts/setup.py, not seeded
+
+# ── Sessions (Redis substitute: SQLite-backed, TTL-checked on access) ───────
+SESSION_TTL_SECONDS = 3600  # 1 hour, per spec
+
+# ── Rate limiting (Redis substitute: SQLite counters) ───────────────────────
+RATE_LIMIT_MSGS_PER_HOUR = 50
+RATE_LIMIT_CONVERSATIONS_PER_DAY = 10
+# Retrievals-per-message cap (spec: 5) maps onto the existing escalation loop:
+# each escalate->retrieve hop is one retrieval, bounded by MAX_ATTEMPTS above.
+
+# ── Conversation context window ──────────────────────────────────────────────
+MAX_CONTEXT_TOKENS = 4096  # history token budget for ConversationContext
