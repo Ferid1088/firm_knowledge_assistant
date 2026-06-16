@@ -15,7 +15,9 @@ import { getMe } from "@/lib/auth";
 import {
   AlertTriangleIcon,
   ChevronRightIcon,
+  CloseIcon,
   FileTextIcon,
+  HelpCircleIcon,
   LangfuseIcon,
   MessageSquareIcon,
   PinIcon,
@@ -202,6 +204,87 @@ function Thread({
   );
 }
 
+function HelpOverlay({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="help-overlay" role="dialog" aria-modal="true" aria-label="Help guide" onClick={onClose}>
+      <div className="help-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="help-modal-header">
+          <span className="help-modal-title">
+            <HelpCircleIcon /> How to use this workspace
+          </span>
+          <button className="help-modal-close" onClick={onClose} aria-label="Close help">
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="help-modal-body">
+          <div className="help-section">
+            <h3>Getting started</h3>
+            <ol className="help-steps">
+              <li>Upload a PDF using the <strong>Upload</strong> button in the left sidebar.</li>
+              <li>Click <strong>New conversation</strong> to open a chat session.</li>
+              <li>Type your question in German or English — the system auto-detects the language.</li>
+              <li>Click a citation card below the answer to jump to the exact page in the PDF viewer.</li>
+            </ol>
+          </div>
+
+          <div className="help-section">
+            <h3>Asking good questions</h3>
+            <ul className="help-list">
+              <li>Be specific: <em>"What is the maximum load for bolt M12 in table 3?"</em></li>
+              <li>Use exact part numbers or clause references for precise results.</li>
+              <li>Multi-part questions work: <em>"Compare section 4.1 and 4.2 on safety requirements."</em></li>
+              <li>If the answer shows low confidence, try rephrasing or adding more context.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>Understanding the answer</h3>
+            <div className="help-legend">
+              <div className="help-legend-item">
+                <span className="confidence-badge confidence-high" style={{ pointerEvents: "none" }}>Confidence 87%</span>
+                <span>High confidence — answer well-supported by documents</span>
+              </div>
+              <div className="help-legend-item">
+                <span className="confidence-badge confidence-low" style={{ pointerEvents: "none" }}>Confidence 40%</span>
+                <span>Low confidence — answer may be incomplete or uncertain</span>
+              </div>
+              <div className="help-legend-item">
+                <span className="message-tag success" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, padding: "3px 8px", borderRadius: 999 }}><ShieldCheckIcon /> Verified</span>
+                <span>All cited quotes were verified against the source text</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="help-section">
+            <h3>PDF viewer</h3>
+            <ul className="help-list">
+              <li>Click any citation card to jump to the exact page and highlight the passage.</li>
+              <li>Drag the column dividers to resize the sidebar, chat, and viewer panels.</li>
+              <li>The viewer shows coloured overlay rectangles over cited text.</li>
+            </ul>
+          </div>
+
+          <div className="help-section">
+            <h3>Conversations & sharing</h3>
+            <ul className="help-list">
+              <li>Each conversation is private to you by default.</li>
+              <li>Use the <strong>share icon</strong> on a conversation to grant another user access.</li>
+              <li>Rename a conversation by clicking the <strong>pencil icon</strong>.</li>
+              <li>Archive or delete conversations from the sidebar action buttons.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="help-modal-footer">
+          <span className="help-footer-note">All processing is local and air-gapped — no data leaves the network.</span>
+          <button className="admin-btn admin-btn-primary" onClick={onClose}>Got it</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatPane({
   history,
   onSelectChunk,
@@ -229,6 +312,7 @@ export default function Home() {
   const [chatWidth, setChatWidth] = useState(760);
   const [dragging, setDragging] = useState<null | "sidebar" | "chat">(null);
 
+  const [showHelp, setShowHelp] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationIdState] = useState<string | null>(null);
@@ -379,6 +463,14 @@ export default function Home() {
             >
               <LangfuseIcon />
             </a>
+            <button
+              className="help-btn"
+              onClick={() => setShowHelp(true)}
+              title="Help & guide"
+              aria-label="Open help guide"
+            >
+              <HelpCircleIcon />
+            </button>
             <span className="header-chip">
               <ShieldCheckIcon /> Secure
             </span>
@@ -418,6 +510,7 @@ export default function Home() {
       <div className="viewer-pane">
         <PdfViewer docId={selected?.address.doc_id ?? null} highlight={selected} jumpToken={jumpToken} />
       </div>
+      {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
     </div>
   );
 }

@@ -34,7 +34,7 @@
 | E2 | Give the agent a personality (formal/friendly/concise) | ⚠️ Partial | Answer prompts exist (`prompts/answer_de.txt`, `prompts/answer_en.txt`) and are language-keyed, but no user-selectable personality mode |
 | E3 | Let user choose from a list of LLMs | ❌ Not done | Model is a single config value (`OLLAMA_MODEL`); no UI to switch between providers |
 | E4 | Expose OpenAI settings (temperature, top-p, frequency) as sliders | ❌ Not done | `OLLAMA_TEMPERATURE = 0` hardcoded in `backend/config.py`; no UI sliders |
-| E5 | Interactive help feature / chatbot guide | ❌ Not done | No help overlay or onboarding guide in the UI |
+| E5 | Interactive help feature / chatbot guide | ✅ Done | `HelpOverlay` component in `page.tsx`; `?` button in chat header opens a modal with getting-started steps, question tips, answer legend (confidence badges, verified tag), PDF viewer guide, and conversation/sharing guide |
 
 ---
 
@@ -73,10 +73,10 @@
 | Category | Done | Partial | Not Done |
 |---|---|---|---|
 | Core Requirements (5.1–5.2 docs gap) | 12 | 1 | 1 |
-| Easy Optional (5 tasks) | 0 | 1 | 4 |
+| Easy Optional (5 tasks) | 1 | 1 | 3 |
 | Medium Optional (9 tasks) | 4 | 2 | 3 |
 | Hard Optional (7 tasks) | 2 | 0 | 5 |
-| **Total** | **18** | **4** | **13** |
+| **Total** | **19** | **4** | **12** |
 
 ### Key gaps to close for full coverage
 
