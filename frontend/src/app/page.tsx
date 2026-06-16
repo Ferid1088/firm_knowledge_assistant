@@ -245,6 +245,7 @@ export default function Home() {
     fetch("/api/conversations", { credentials: "include" })
       .then((r) => r.json())
       .then((data: ConversationSummary[]) => {
+        if (!Array.isArray(data)) return;
         setConversations(data);
         if (!activeConversationId && data.length > 0) {
           setActiveConversationIdState(data[0].id);
