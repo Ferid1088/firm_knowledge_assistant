@@ -61,7 +61,7 @@ def run_migration() -> None:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         rows = conn.execute("SELECT id, name FROM departments_old").fetchall()
         for r in rows:
-            code = r["id"].split("-")[-1].upper()  # "dept-hr" -> "HR"
+            code = r["id"].removeprefix("dept-").upper().replace("-", "_")  # "dept-hr" -> "HR", "dept-engineering-backend" -> "ENGINEERING_BACKEND"
             conn.execute(
                 "INSERT INTO departments (id, name, code, status, created_at) VALUES (?,?,?,'active',?)",
                 (r["id"], r["name"], code, now),
@@ -95,6 +95,19 @@ def run_migration() -> None:
             )
         """)
         print("  roles/permissions tables created.")
+
+        # Insert system roles before migrating users (FK references)
+        import datetime as _dt
+        _now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        conn.execute("""
+            INSERT OR IGNORE INTO roles (id, name, description, is_system, created_at)
+            VALUES ('superadmin', 'Super Admin', 'Full access including admin panel', 1, ?)
+        """, (_now,))
+        conn.execute("""
+            INSERT OR IGNORE INTO roles (id, name, description, is_system, created_at)
+            VALUES ('member', 'Member', 'Standard user', 1, ?)
+        """, (_now,))
+        print("  system roles inserted.")
 
         # ── 4. Recreate users with auth columns ───────────────────────────────
         conn.execute("ALTER TABLE users RENAME TO users_old")
@@ -181,9 +194,9 @@ def run_migration() -> None:
         )
         print("  user_sessions table created.")
 
-        # ── 7. Drop old tables ────────────────────────────────────────────────
-        conn.execute("DROP TABLE IF EXISTS departments_old")
-        conn.execute("DROP TABLE IF EXISTS users_old")
+        # ── 7. Clean up: drop only tables that are truly obsolete ─────────────
+        # departments_old and users_old are kept for safety — drop manually after
+        # verifying production data is intact. agent_sessions is replaced by user_sessions.
         conn.execute("DROP TABLE IF EXISTS agent_sessions")
 
         conn.execute("PRAGMA foreign_keys = ON")
