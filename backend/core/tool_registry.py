@@ -192,8 +192,8 @@ def get_registry(
 ) -> ToolRegistry:
     """Return (or lazily initialize) the global tool registry.
 
-    On first call, adds the four default search paths and runs auto-discovery
-    unless the caller passes search_paths or auto_discover=False.
+    On first call, adds the four default search paths, runs auto-discovery,
+    and applies enabled/disabled flags from config/tools.yaml.
     """
     global _registry
     if _registry is None:
@@ -202,10 +202,19 @@ def get_registry(
         for path in effective_paths:
             _registry.add_search_path(path)
         if auto_discover and _registry.tool_paths:
-            # Only auto-discover if at least one search path actually exists.
-            # Pass base_module so paths like "backend/tools/readers/pdf.py"
-            # resolve to "backend.tools.readers.pdf", not "readers.pdf".
             _registry.discover_tools(base_module="backend")
+
+        # Apply enabled/disabled flags from config/tools.yaml.
+        try:
+            from backend.core.config_loader import load_tools_config
+            from backend.core.tool_loaders import load_enabled_tools
+            cfg = load_tools_config()
+            load_enabled_tools(_registry, cfg)
+        except FileNotFoundError:
+            logger.warning("config/tools.yaml not found — all discovered tools treated as enabled")
+        except Exception as exc:
+            logger.warning(f"Could not apply tools config: {exc}")
+
     return _registry
 
 

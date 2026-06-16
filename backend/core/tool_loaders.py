@@ -12,7 +12,7 @@ def load_enabled_tools(registry: Any, config: Dict[str, Any]) -> List[str]:
 
     Args:
         registry: A ToolRegistry instance.
-        config: Dict loaded from config/tools.yaml (see config/tools.py).
+        config: Dict loaded from config/tools.yaml (see backend/core/config_loader.py).
 
     Returns:
         List of tool names that were successfully enabled.
