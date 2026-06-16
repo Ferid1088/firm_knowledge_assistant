@@ -15,5 +15,8 @@ samples/*.pdf
 query_wf.md
 /docs/
 /raw_knowlegebase/
-/database/
+# Runtime database files (app.db, encryption keys, Qdrant data)
+/database/app.db
+/database/keys/
+/database/qdrant/
 CLAUDE.md
