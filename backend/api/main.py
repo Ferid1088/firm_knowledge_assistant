@@ -2,8 +2,8 @@
 
 Backend is frontend-agnostic: this module is the API; the UI is a thin layer
 over artifact_chunks (CLAUDE.md architecture principle). The LangGraph engine
-(src/query/graph/graph.py) does all orchestration; this file adapts HTTP <-> graph
-for queries, and HTTP <-> src/ingest/pipeline.py for document ingestion.
+(backend/graph/graph.py) does all orchestration; this file adapts HTTP <-> graph
+for queries, and HTTP <-> backend/tools/pipeline.py for document ingestion.
 
 Air-gap: CORS restricted to the local Next.js dev origin; offline/telemetry
 flags are set in config.py (imported on module load).
@@ -17,12 +17,17 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from config import ORIGINALS_DIR, AVAILABLE_LANGUAGES, OLLAMA_MODEL, RETRIEVE_K
+from backend.config import ORIGINALS_DIR, AVAILABLE_LANGUAGES, OLLAMA_MODEL, RETRIEVE_K
+from backend.api.routes import auth as auth_routes, admin as admin_routes
+from backend.database import init_db
+from backend.services import iam, conversations, sharing, rate_limit
+from backend.services.conversations import ConversationError
+from backend.services.rate_limit import RateLimitError
 
 app = FastAPI(title="Local RAG API")
 
@@ -30,9 +35,34 @@ app = FastAPI(title="Local RAG API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+
+
+app.include_router(auth_routes.router)
+app.include_router(admin_routes.router)
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    init_db()
+    iam.init_seed_data()
+
+
+def get_current_user(request: Request) -> iam.User:
+    """Resolve calling user from session cookie. Raises 401 if missing or expired."""
+    from backend.services.auth import resolve_session
+    session_id = request.cookies.get("rag_session", "")
+    session = resolve_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = iam.get_user(session["user_id"])
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
 
 _bm25_loaded = False
 # Serializes ingestion jobs: BM25 rebuild + Qdrant writes are not safe to
@@ -41,8 +71,8 @@ _ingest_lock = threading.Lock()
 
 
 def _refresh_bm25_indices() -> None:
-    from src.ingest.pipeline import rebuild_bm25_indices
-    from src.query.graph.nodes import set_bm25_indices
+    from backend.tools.pipeline import rebuild_bm25_indices
+    from backend.graph.nodes import set_bm25_indices
 
     set_bm25_indices(rebuild_bm25_indices())
 
@@ -95,7 +125,7 @@ def get_config():
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    from src.query.graph.graph import run as graph_run
+    from backend.graph.graph import run as graph_run
 
     _ensure_bm25_loaded()
 
@@ -114,8 +144,153 @@ def chat(req: ChatRequest):
     )
 
 
+# ── IAM (read-only; for the frontend user-switcher) ──────────────────────────
+
+@app.get("/api/users")
+def list_users():
+    return [{"id": u.id, "name": u.name, "department_id": u.department_id, "role": u.role} for u in iam.list_users()]
+
+
+@app.get("/api/departments")
+def list_departments():
+    return iam.list_departments()
+
+
+# ── Conversations ──────────────────────────────────────────────────────────
+
+class ConversationCreate(BaseModel):
+    title: Optional[str] = "New conversation"
+
+
+class ConversationRename(BaseModel):
+    title: Optional[str] = None
+    status: Optional[str] = None  # "active" | "archived" | "deleted" (set via PATCH)
+
+
+class ShareRequest(BaseModel):
+    user_id: str
+    permission: str  # "view" | "comment" | "edit"
+
+
+def _conversation_summary(conv: dict) -> dict:
+    return {
+        "id": conv["id"],
+        "title": conv["title"],
+        "status": conv["status"],
+        "owner_user_id": conv["owner_user_id"],
+        "department_id": conv["department_id"],
+        "created_at": conv["created_at"],
+        "updated_at": conv["updated_at"],
+    }
+
+
+@app.post("/api/conversations")
+def create_conversation(req: ConversationCreate, user: iam.User = Depends(get_current_user)):
+    try:
+        rate_limit.apply_agent_rate_limits(user.id, "conversation")
+    except RateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    conv = conversations.create_conversation(user, req.title or "New conversation")
+    return _conversation_summary(conv)
+
+
+@app.get("/api/conversations")
+def list_conversations_endpoint(user: iam.User = Depends(get_current_user)):
+    return [_conversation_summary(c) for c in conversations.list_conversations(user)]
+
+
+@app.get("/api/conversations/{conversation_id}")
+def get_conversation_endpoint(conversation_id: str, user: iam.User = Depends(get_current_user)):
+    try:
+        conv = conversations.get_conversation(conversation_id, user)
+    except ConversationError as e:
+        raise HTTPException(status_code=404 if "not found" in str(e) else 403, detail=str(e))
+    return {
+        **_conversation_summary(conv),
+        "messages": conversations.get_messages(conversation_id),
+        "shares": sharing.list_shares(conversation_id),
+    }
+
+
+@app.patch("/api/conversations/{conversation_id}")
+def update_conversation(conversation_id: str, req: ConversationRename, user: iam.User = Depends(get_current_user)):
+    try:
+        if req.title is not None:
+            conversations.rename_conversation(conversation_id, user, req.title)
+        if req.status is not None:
+            if req.status == "archived":
+                conversations.archive_conversation(conversation_id, user)
+            elif req.status == "deleted":
+                conversations.delete_conversation(conversation_id, user)
+            elif req.status == "active":
+                conversations.restore_conversation(conversation_id, user)
+            else:
+                raise HTTPException(status_code=400, detail="status must be one of: active, archived, deleted")
+        return _conversation_summary(conversations.get_conversation_row(conversation_id))
+    except ConversationError as e:
+        raise HTTPException(status_code=404 if "not found" in str(e) else 403, detail=str(e))
+
+
+@app.post("/api/conversations/{conversation_id}/share")
+def share_conversation_endpoint(conversation_id: str, req: ShareRequest, user: iam.User = Depends(get_current_user)):
+    try:
+        return sharing.share_conversation(conversation_id, user, req.user_id, req.permission)
+    except ConversationError as e:
+        raise HTTPException(status_code=404 if "not found" in str(e) else 403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/conversations/{conversation_id}/share/{target_user_id}")
+def revoke_share_endpoint(conversation_id: str, target_user_id: str, user: iam.User = Depends(get_current_user)):
+    try:
+        sharing.revoke_share(conversation_id, user, target_user_id)
+        return {"ok": True}
+    except ConversationError as e:
+        raise HTTPException(status_code=404 if "not found" in str(e) else 403, detail=str(e))
+
+
+@app.post("/api/conversations/{conversation_id}/messages", response_model=ChatResponse)
+def post_message(conversation_id: str, req: ChatRequest, user: iam.User = Depends(get_current_user)):
+    """Conversation-scoped chat: access check -> rate limit -> run graph with
+    history -> persist both turns (encrypted, signed) -> return ChatResponse."""
+    from backend.graph.graph import run as graph_run
+
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="question must not be empty")
+
+    try:
+        conversations.get_conversation(conversation_id, user)  # access check
+        history = conversations.get_conversation_context(conversation_id, user)
+    except ConversationError as e:
+        raise HTTPException(status_code=404 if "not found" in str(e) else 403, detail=str(e))
+
+    try:
+        rate_limit.apply_agent_rate_limits(user.id, "message")
+    except RateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
+    _ensure_bm25_loaded()
+    state = graph_run(req.question, active_lang_codes=req.active_lang_codes or ["de"], history=history)
+
+    conversations.add_message(conversation_id, "user", req.question, state.get("query_lang", "de"))
+    conversations.add_message(
+        conversation_id, "assistant", state.get("answer", ""), state.get("answer_lang", "de"),
+        claims=state.get("claims", []), artifact_chunks=state.get("artifact_chunks", []),
+    )
+
+    return ChatResponse(
+        answer=state.get("answer", ""),
+        answer_lang=state.get("answer_lang", "de"),
+        confidence=float(state.get("confidence", 0.0)),
+        attempts=int(state.get("attempts", 0)),
+        claims=state.get("claims", []),
+        artifact_chunks=state.get("artifact_chunks", []),
+    )
+
+
 def _run_ingest_job(job_id: str, tmp_path: Path) -> None:
-    from src.ingest.pipeline import ingest
+    from backend.tools.pipeline import ingest
 
     job = _ingest_jobs[job_id]
     job.status = "running"
@@ -140,7 +315,7 @@ def ingest_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
 
     Runs in the background; poll GET /api/ingest/{job_id} for status. Re-uploading
     a PDF with the same doc_id (filename stem) supersedes the prior version, per
-    CLAUDE.md versioning (is_current flag) — handled inside src.ingest.pipeline.ingest.
+    CLAUDE.md versioning (is_current flag) — handled inside backend.tools.pipeline.ingest.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="only .pdf files are accepted")
