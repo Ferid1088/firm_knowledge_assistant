@@ -128,6 +128,7 @@ class ChatRequest(BaseModel):
     question: str
     active_lang_codes: Optional[list[str]] = None
     doc_type_filter: Optional[list[str]] = None  # user-selected type filter; None = all allowed
+    structural_types: Optional[list[str]] = None  # e.g. ["table", "list"] — filter by chunk structure
 
 
 class ChatResponse(BaseModel):
@@ -198,6 +199,7 @@ def chat(req: ChatRequest, user: iam.User = Depends(get_current_user)):
         active_lang_codes=req.active_lang_codes or ["de"],
         allowed_doc_type_ids=user.allowed_doc_type_ids,
         user_id=user.id,
+        structural_types=req.structural_types,
     )
 
     return ChatResponse(
@@ -408,6 +410,7 @@ def post_message(conversation_id: str, req: ChatRequest, user: iam.User = Depend
             allowed_doc_type_ids=effective_doc_types,
             user_id=user.id,
             conversation_id=conversation_id,
+            structural_types=req.structural_types,
         )
         if CACHE_ENABLED and _cache_key is not None:
             put_cache(_cache_key, state, req.question, conversation_id, user.id,

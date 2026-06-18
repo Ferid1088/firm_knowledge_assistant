@@ -91,7 +91,7 @@ class StructuralChunk:
     """Single retrieval unit produced by the structural chunker."""
 
     chunk_id: str
-    chunk_type: str           # "table" | "recommendation" | "prose" | "heading"
+    chunk_type: str           # "table" | "recommendation" | "prose" | "heading" | "list"
     is_leaf: bool
     text: str
     context_text: str         # heading path + text (what gets embedded)
@@ -150,7 +150,40 @@ def _walk(doc, prose_chunker, heading_path: list[str], parent_id: Optional[str],
         return
 
     prose_buffer: list = []
+    list_buffer: list = []
     prose_heading_path: list[str] = list(heading_path)
+
+    def _flush_list_buffer():
+        """Emit a single 'list' StructuralChunk from contiguous LIST_ITEM elements."""
+        if not list_buffer:
+            return
+        texts = []
+        items = []
+        for li_item, li_hp in list_buffer:
+            t = getattr(li_item, "text", "") or ""
+            if t.strip():
+                texts.append(f"• {t.strip()}")
+                items.append(li_item)
+        if not texts:
+            list_buffer.clear()
+            return
+        text = "\n".join(texts)
+        hp = list_buffer[0][1]
+        ctx = _heading_path_str(hp)
+        context_text = f"{ctx}\n\n{text}".strip() if ctx else text
+        out.append(StructuralChunk(
+            chunk_id=str(uuid.uuid4()),
+            chunk_type="list",
+            is_leaf=True,
+            text=text,
+            context_text=context_text,
+            parent_id=parent_id,
+            heading_path=list(hp),
+            doc_items=items,
+            chunk_index_in_parent=counter[0],
+        ))
+        counter[0] += 1
+        list_buffer.clear()
 
     def _flush_prose():
         """Emit StructuralChunk prose leaves for every item in prose_buffer, then clear it."""
@@ -185,6 +218,7 @@ def _walk(doc, prose_chunker, heading_path: list[str], parent_id: Optional[str],
 
         if label == DocItemLabel.SECTION_HEADER or label == DocItemLabel.TITLE:
             _flush_prose()
+            _flush_list_buffer()
             heading_path = list(heading_path)
             # Trim heading stack to current level
             if level is not None and isinstance(level, int):
@@ -209,6 +243,7 @@ def _walk(doc, prose_chunker, heading_path: list[str], parent_id: Optional[str],
 
         elif label == DocItemLabel.TABLE:
             _flush_prose()
+            _flush_list_buffer()
             try:
                 text = item.export_to_markdown(doc=doc)
             except Exception:
@@ -233,7 +268,30 @@ def _walk(doc, prose_chunker, heading_path: list[str], parent_id: Optional[str],
             ))
             counter[0] += 1
 
-        elif label in (DocItemLabel.TEXT, DocItemLabel.PARAGRAPH, DocItemLabel.LIST_ITEM):
+        elif label == DocItemLabel.LIST_ITEM:
+            if text.strip() and _looks_like_recommendation(text):
+                _flush_prose()
+                _flush_list_buffer()
+                cid = str(uuid.uuid4())
+                ctx = _heading_path_str(prose_heading_path)
+                context_text = f"{ctx}\n\n{text}".strip() if ctx else text
+                out.append(StructuralChunk(
+                    chunk_id=cid,
+                    chunk_type="recommendation",
+                    is_leaf=True,
+                    text=text,
+                    context_text=context_text,
+                    parent_id=parent_id,
+                    heading_path=list(prose_heading_path),
+                    doc_items=[item],
+                    chunk_index_in_parent=counter[0],
+                ))
+                counter[0] += 1
+            elif text.strip():
+                list_buffer.append((item, list(prose_heading_path)))
+
+        elif label in (DocItemLabel.TEXT, DocItemLabel.PARAGRAPH):
+            _flush_list_buffer()
             if text.strip() and _looks_like_recommendation(text):
                 _flush_prose()
                 cid = str(uuid.uuid4())
@@ -256,6 +314,8 @@ def _walk(doc, prose_chunker, heading_path: list[str], parent_id: Optional[str],
 
         # other labels (figure captions, footnotes, etc.) go to prose
         elif text.strip():
+            _flush_list_buffer()
             prose_buffer.append((item, list(prose_heading_path)))
 
+    _flush_list_buffer()
     _flush_prose()

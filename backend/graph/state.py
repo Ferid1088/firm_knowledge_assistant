@@ -40,6 +40,7 @@ class RAGState(TypedDict, total=False):
 
     # Access control
     allowed_doc_type_ids: Optional[list[str]]  # None = unrestricted; set per request from user session
+    structural_types: Optional[list[str]]       # None = all; e.g. ["table", "list"] for structure-filtered retrieval
 
     # Internals
     escalation_reason: str

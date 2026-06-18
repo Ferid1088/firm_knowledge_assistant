@@ -207,6 +207,7 @@ def search(
     k: int = RETRIEVE_DEEP_POOL,
     current_only: bool = True,
     allowed_doc_type_ids: list[str] | None = None,  # None = all types allowed
+    structural_types: list[str] | None = None,       # e.g. ["table", "list"] — None = all
 ) -> list[dict]:
     """Dense + sparse BM25 hybrid search with RRF fusion; returns payload dicts."""
     from backend.adapters.embedder import embed_query
@@ -223,6 +224,13 @@ def search(
             return []  # user has restrictions but none are active → return nothing
         must_conditions.append(
             FieldCondition(key="doc_type", match=MatchAny(any=allowed_doc_type_ids))
+        )
+    # Structural type filter: restrict retrieval to specific chunk structures
+    if structural_types is not None:
+        if not structural_types:
+            return []
+        must_conditions.append(
+            FieldCondition(key="structural_type", match=MatchAny(any=structural_types))
         )
     current_filter = Filter(must=must_conditions) if must_conditions else None
 

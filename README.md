@@ -115,15 +115,172 @@ On first launch, navigate to the setup wizard to create the initial superadmin a
 
 ---
 
-## Ingestion pipeline
+## Ingestion pipeline — adaptive 11-step workflow
 
-Documents go through a five-stage offline pipeline before they are searchable.
+Every uploaded document flows through an **adaptive pipeline** that selects the right parser, chunker, and embedding strategy based on the detected document type. The pipeline is defined in `backend/tools/pipeline.py`.
 
 ```
-Upload → 1. DETECT → 2. READ → 3. PARSE → 4. CHUNK → 5. EMBED & INDEX
+                              ┌─────────────────────────┐
+                              │      File Upload         │
+                              │  (UI or POST /api/ingest)│
+                              └────────────┬─────────────┘
+                                           │
+                              ┌────────────▼─────────────┐
+                              │  0. READ                  │
+                              │  ToolRegistry dispatches  │
+                              │  a FileReaderTool by ext  │
+                              │  (.pdf → PDFReader,       │
+                              │   .docx → DOCXReader …)   │
+                              │  Validates file integrity  │
+                              └────────────┬─────────────┘
+                                           │
+                              ┌────────────▼─────────────┐
+                              │  1. SCAN CHECK            │
+                              │  Detect scanned/empty     │
+                              │  pages (no text layer)    │
+                              │  → quarantine if scanned  │
+                              └────────────┬─────────────┘
+                                           │
+                              ┌────────────▼─────────────┐
+                              │  2. TYPE RESOLUTION       │
+                              │                           │
+                              │  User-selected doc type?  │
+                              │    YES → use directly     │
+                              │    NO  → LLM classifier   │
+                              │          samples 3 pages  │
+                              │          (first/mid/last) │
+                              │          → one of 10 types│
+                              └────────────┬─────────────┘
+                                           │
+                          ┌────────────────▼────────────────┐
+                          │                                  │
+                          │   TypeRegistry.get_handler()     │
+                          │   Maps doc_type → (parser,       │
+                          │   chunker, embed_strategy)       │
+                          │                                  │
+                          └────────┬─────────────────────────┘
+                                   │
+              ┌────────────────────┴────────────────────┐
+              │          ADAPTIVE DISPATCH               │
+              │  Each doc_type gets a different          │
+              │  parser + chunker + embed strategy       │
+              ▼                                          ▼
+┌─────────────────────────┐            ┌─────────────────────────┐
+│  3. PARSE               │            │  4. CHUNK               │
+│  Parser selected by type│            │  Chunker selected by    │
+│                         │            │  type (see table below) │
+│  • Docling (most types) │            │                         │
+│  • EML parser (emails)  │            │  Structural parent-child│
+│  • OCR parser (scanned) │            │  tree; atomic leaves    │
+│    (stub on pilot)      │            │  for tables & clauses   │
+└─────────────┬───────────┘            └─────────────┬───────────┘
+              │                                      │
+              └──────────────┬───────────────────────┘
+                             │
+                ┌────────────▼─────────────┐
+                │  5. PAGE SIZES           │
+                │  Extract bbox dimensions │
+                │  for citation overlays   │
+                └────────────┬─────────────┘
+                             │
+                ┌────────────▼─────────────┐
+                │  6. LANGUAGE DETECTION   │
+                │  Per-chunk langdetect    │
+                │  → assigns lang metadata │
+                └────────────┬─────────────┘
+                             │
+                ┌────────────▼─────────────┐
+                │  7. BM25 SPARSE VECTORS  │
+                │  Per-language BM25 index │
+                │  (German decompounding)  │
+                │  → sparse_de, sparse_en  │
+                └────────────┬─────────────┘
+                             │
+                ┌────────────▼─────────────┐
+                │  8. EMBED                │
+                │  Strategy from type:     │
+                │  • text_dense (standard) │
+                │  • description_dense     │
+                │    (oversize tables)     │
+                │  Qwen3-Embedding         │
+                └────────────┬─────────────┘
+                             │
+                ┌────────────▼─────────────┐
+                │  9. QUALITY GATE         │
+                │  Drop chunks < 10 chars  │
+                │  or empty context_text   │
+                └────────────┬─────────────┘
+                             │
+                ┌────────────▼─────────────┐
+                │  10. STORE → Qdrant      │
+                │  Dense + named sparse    │
+                │  vectors per language    │
+                │  Versioning: is_current  │
+                │  Re-ingest supersedes    │
+                └──────────────────────────┘
 ```
+
+### Step 2 — LLM-based type detection (`type_detector.py`)
+
+When the user does not select a document type, the pipeline samples up to 3 pages (first, middle, last) and sends them to the local Ollama LLM for classification. The classifier returns one of 10 types with a confidence score. Below 80% confidence, the type falls back to `prose_text`.
+
+| Type key | Description | Example |
+|---|---|---|
+| `prose_text` | General flowing text | Reports, articles, memos |
+| `table_structured` | Primarily tabular data | Spreadsheets, data exports |
+| `norm_standard` | Technical standard / norm | DIN, ISO, EN, VDE |
+| `technical_manual` | Operating instructions | Equipment manuals, datasheets |
+| `legal_contract` | Contracts, T&C, legal | Agreements, clauses, SLAs |
+| `report_study` | Reports, analyses | Audit reports, studies |
+| `form_template` | Forms, fillable templates | Application forms |
+| `invoice_bill` | Invoices, delivery notes | Bills, purchase orders |
+| `presentation` | Slide decks | Conference talks, pitches |
+| `correspondence` | Emails, letters, memos | .eml, .msg, printed emails |
+
+### Steps 3–4 — Adaptive parser × chunker dispatch (`type_registry.py`)
+
+The `TypeRegistry` maps each detected type to a specific **(parser, chunker, embed strategy)** triple. Adding a new document type = one entry here + one parser/chunker module.
+
+| Detected type | Parser | Chunker | Embed strategy | Table schemas |
+|---|---|---|---|---|
+| `prose_text` | Docling | HybridChunker | text_dense | — |
+| `table_structured` | Docling | TableAtomic | description_dense | — |
+| `technical_plan` | Docling | PlanChunker | text_dense | requirements, schedule, resources |
+| `legal_contract` | Docling | ClauseAtomic | text_dense | parties, pricing, schedule, obligations |
+| `authority_document` | Docling | DocumentStructureChunker | text_dense | obligations, penalties |
+| `project_management` | Docling | ProjectChunker | text_dense | milestones, budget, risks |
+| `knowledge_base` | Docling | HybridChunker | text_dense | — |
+| `hr_personnel` | Docling | HybridChunker | text_dense | — |
+| `email_thread` | Docling / Native EML | ThreadChunker | text_dense | — |
+| `scanned_image` | OCR (stub on pilot) | ImageChunker | text_dense | — |
+
+**Parsers:**
+- **Docling** — primary parser for most types. Uses the TableFormer pipeline (`do_ocr=False`) to extract table structure from the PDF layer without hallucinating numbers.
+- **EML parser** — native email extraction (headers, MIME parts, inline attachments) for `.eml`/`.msg` files.
+- **OCR parser** — stub for future scanned-PDF support. Currently raises if called; scanned pages are quarantined, never silently ingested.
+
+**Chunkers (8 domain strategies):**
+
+| Chunker | Chunk types produced | Strategy |
+|---|---|---|
+| `HybridChunker` | `prose` | Token-aware windowing (max 512 tokens) within section boundaries. Default for generic text. |
+| `TableAtomic` | `table` (atomic) | Each table kept whole — never split even if > 512 tokens. Prose sections windowed separately. |
+| `DocumentStructureChunker` | `heading` (parent) + `prose` leaves | Heading nodes become parents; child prose leaves via HybridChunker. Tables kept atomic. |
+| `ClauseAtomic` | `recommendation` / clause (atomic) | Article/clause/numbered paragraph → atomic leaf. Nested prose windowed. |
+| `PlanChunker` | `plan_item`, `milestone` (atomic) | Phase → Work Package → Task/Milestone hierarchy with temporal metadata. |
+| `ProjectChunker` | `project_item`, `milestone` (atomic) | Project items and milestones as atomic leaves with temporal metadata. |
+| `ThreadChunker` | message chunks | One chunk per email message; thread header as parent context. |
+| `ImageChunker` | metadata + alt-text | Metadata extraction only (no OCR on pilot); scanned guard fires. |
+
+**Table schemas** provide per-type keyword lists (DE + EN) for classifying table roles. For example, a `legal_contract` table with headers containing "Preis" or "amount" is tagged `table_role=pricing`. This metadata feeds downstream filtering and retrieval.
+
+**Embed strategies:**
+- `text_dense` — standard Qwen3-Embedding on the chunk's context text (used by most types).
+- `description_dense` — for oversize atomic leaves (tables): embed a generated contextual description; the full original text is still stored and returned for citations. (Description generation deferred on pilot; raw text used.)
 
 ### Supported file formats (15 readers)
+
+The `ToolRegistry` auto-discovers readers from `backend/tools/readers/`. Enable/disable individual readers in `config/tools.yaml`.
 
 | Format | Extension | Reader | Dependency |
 |---|---|---|---|
@@ -143,22 +300,9 @@ Upload → 1. DETECT → 2. READ → 3. PARSE → 4. CHUNK → 5. EMBED & INDEX
 | DWG drawing | `.dwg` | `readers/dwg.py` | *(stub — no parser yet)* |
 | Image | `.png/.jpg/…` | `readers/image.py` | Pillow |
 
-Enable/disable individual readers in `config/tools.yaml` without touching code.
+### Scanned-PDF guard
 
-### Chunking strategies (8 domain chunkers)
-
-| Document type | Chunker | Strategy |
-|---|---|---|
-| Authority document (DIN/ISO) | `document_structure.py` | Heading parents → prose leaves via HybridChunker (max 512 tokens); tables kept atomic |
-| Table-heavy document | `table_atomic.py` | Each table as one atomic leaf; prose windowed |
-| Legal contract | `clause_atomic.py` | Article/clause → atomic leaf; nested prose windowed |
-| Technical plan | `plan_chunker.py` | Phase → Work Package → Task/Milestone hierarchy |
-| Project document | `project_chunker.py` | Project items and milestones as atomic leaves |
-| Email thread | `thread_chunker.py` | One chunk per message; thread header as parent |
-| Image / drawing | `image_chunker.py` | Metadata + alt-text chunk (no OCR) |
-| Generic prose | `hybrid.py` | HybridChunker, section-windowed, max 512 tokens |
-
-Scanned PDFs (pages without extractable text) are flagged and quarantined — blank chunks are never indexed.
+Pages without an extractable text layer are detected in step 1. If a PDF is fully scanned, it is **quarantined** (not indexed). Partially scanned PDFs proceed with empty pages excluded. This prevents blank chunks from polluting the vector store.
 
 ---
 

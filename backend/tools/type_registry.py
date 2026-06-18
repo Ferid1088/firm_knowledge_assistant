@@ -45,6 +45,7 @@ def _build_registry() -> dict[str, DocTypeHandler]:
     from backend.tools.chunkers import (
         hybrid, table_atomic, plan_chunker, image_chunker,
         clause_atomic, document_structure, project_chunker, thread_chunker,
+        list_chunker,
     )
 
     return {
@@ -139,6 +140,14 @@ def _build_registry() -> dict[str, DocTypeHandler]:
             embed_strategy="text_dense",
             parser_name="Docling",
             chunker_name="HybridChunker",
+        ),
+        "list_heavy": DocTypeHandler(
+            doc_type="list_heavy",
+            parse=docling_parser.parse,
+            chunk=list_chunker.chunk,
+            embed_strategy="text_dense",
+            parser_name="Docling",
+            chunker_name="ListChunker",
         ),
         "email_thread": DocTypeHandler(
             doc_type="email_thread",

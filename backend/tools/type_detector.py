@@ -41,6 +41,7 @@ VALID_TYPES = {
     "invoice_bill",
     "presentation",
     "correspondence",
+    "list_heavy",
 }
 
 _PROMPT = """\
@@ -56,6 +57,7 @@ You are a document classification expert. Given a text sample from a PDF, classi
 - invoice_bill      : invoice, delivery note, or bill
 - presentation      : presentation slides
 - correspondence    : email, letter, or memo
+- list_heavy        : document dominated by bullet/numbered lists (checklists, requirements lists, action items)
 
 Respond with ONLY valid JSON in this exact format, nothing else:
 {{"doc_type": "<type>", "confidence": <0.0 to 1.0>}}

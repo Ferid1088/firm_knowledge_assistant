@@ -21,6 +21,7 @@ def retrieve(state: RAGState) -> RAGState:
     seen_ids: set[str] = set()
 
     allowed_doc_type_ids = state.get("allowed_doc_type_ids", None)
+    structural_types = state.get("structural_types", None)
 
     for sub_q in sub_questions:
         # Dense pass uses the original query (cross-lingual model handles it)
@@ -32,6 +33,7 @@ def retrieve(state: RAGState) -> RAGState:
             active_codes,
             k=k,
             allowed_doc_type_ids=allowed_doc_type_ids,
+            structural_types=structural_types,
         )
         for h in hits:
             cid = h["chunk_id"]
@@ -52,6 +54,7 @@ def retrieve(state: RAGState) -> RAGState:
                 [lang_code],
                 k=k // 2,
                 allowed_doc_type_ids=allowed_doc_type_ids,
+                structural_types=structural_types,
             )
             for h in hits:
                 cid = h["chunk_id"]

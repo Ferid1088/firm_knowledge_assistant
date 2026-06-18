@@ -70,7 +70,8 @@ rag_graph = build_graph()
 
 def run(question: str, active_lang_codes: list[str] | None = None,
         history: list[dict] | None = None,
-        allowed_doc_type_ids: list[str] | None = None) -> RAGState:
+        allowed_doc_type_ids: list[str] | None = None,
+        structural_types: list[str] | None = None) -> RAGState:
     """Run the full pipeline and return the final state."""
     init: RAGState = {
         "question": question,
@@ -78,5 +79,6 @@ def run(question: str, active_lang_codes: list[str] | None = None,
         "attempts": 0,
         "history": history or [],
         "allowed_doc_type_ids": allowed_doc_type_ids,
+        "structural_types": structural_types,
     }
     return rag_graph.invoke(init)
