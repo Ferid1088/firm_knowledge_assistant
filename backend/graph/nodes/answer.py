@@ -27,6 +27,7 @@ def _format_history(history: list[dict], lang: str) -> str:
 
 
 def answer(state: RAGState) -> RAGState:
+    """Call local LLM, verify citations against source chunks, populate artifact_chunks."""
     import ollama
 
     reranked = state.get("reranked", [])

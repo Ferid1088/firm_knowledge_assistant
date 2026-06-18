@@ -8,6 +8,7 @@ router = APIRouter()
 
 @router.get("/config")
 def get_config():
+    """Expose UI-relevant config values (available languages, model, top_k)."""
     return {
         "available_languages": [code for code, *_ in AVAILABLE_LANGUAGES],
         "default_active_languages": [code for code, *_ in AVAILABLE_LANGUAGES],

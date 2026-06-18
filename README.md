@@ -20,7 +20,7 @@ This agent is a **private document intelligence workspace**. You upload internal
 | Answers must be verifiable, not hallucinated | Every claim is quote-verified against the source chunk before the answer is returned |
 | Tables and structured data are lost in plain-text pipelines | Docling TableFormer pipeline extracts table structure from the PDF layer; numbers are never hallucinated |
 | Users write in different languages | Bidirectional DE ↔ EN retrieval; answer language follows the question language |
-| Multiple staff need access to the same knowledge base | Multi-user IAM with departments, roles, per-user conversation isolation, and conversation sharing |
+| Multiple staff need access to the same knowledge base | Multi-user IAM (dentity and Access Management) with departments, roles, per-user conversation isolation, and conversation sharing |
 
 ### Target users
 

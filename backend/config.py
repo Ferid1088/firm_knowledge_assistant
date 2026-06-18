@@ -92,6 +92,18 @@ SEED_DEPARTMENTS = [
 
 SEED_USERS = []  # Users created via scripts/setup.py, not seeded
 
+# Document types seeded idempotently on startup (id, name, description).
+# Admins can add more via the Admin → Doc Types tab; these are the defaults.
+SEED_DOC_TYPES = [
+    ("dt-norm",     "Norm / Regulation",   "DIN, ISO, legal regulations, standards"),
+    ("dt-contract", "Contract",            "Legal contracts, agreements, clauses"),
+    ("dt-manual",   "Technical Manual",    "Operating manuals, datasheets, drawings"),
+    ("dt-hr",       "HR Document",         "Policies, guidelines, employment docs"),
+    ("dt-report",   "Report / Protocol",   "Meeting minutes, audit reports, analyses"),
+    ("dt-email",    "Email / Correspondence", "Emails, mailbox exports, letters"),
+    ("dt-other",    "Other",               "General documents not covered above"),
+]
+
 # ── Sessions (Redis substitute: SQLite-backed, TTL-checked on access) ───────
 SESSION_TTL_SECONDS = 3600  # 1 hour, per spec
 
@@ -108,6 +120,7 @@ MAX_CONTEXT_TOKENS = 4096  # history token budget for ConversationContext
 # Values read from .env.langfuse at startup; defaults keep tracing OFF if the
 # file is absent (safe for air-gapped deployments without Langfuse running).
 def _env_bool(key: str, default: bool = False) -> bool:
+    """Read an environment variable as a boolean ('1', 'true', or 'yes' → True)."""
     return os.environ.get(key, str(default)).lower() in ("1", "true", "yes")
 
 LANGFUSE_ENABLED  = _env_bool("LANGFUSE_ENABLED", False)

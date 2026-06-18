@@ -12,15 +12,17 @@ from __future__ import annotations
 import uuid
 from docling_core.types.doc import DocItemLabel
 
-from backend.tools.chunk import StructuralChunk
+from backend.tools.chunk import StructuralChunk, extract_table_structure
 from backend.tools.parsers.parse_result import ParseResult
 
 
 def _heading_path_str(path: list[str]) -> str:
+    """Render heading path as breadcrumb string."""
     return " > ".join(path) if path else ""
 
 
 def chunk(result: ParseResult) -> list[StructuralChunk]:
+    """Extract every table as an atomic leaf; headings become parent nodes."""
     doc = result.doc
     out: list[StructuralChunk] = []
     heading_path: list[str] = []
@@ -60,11 +62,13 @@ def chunk(result: ParseResult) -> list[StructuralChunk]:
                 continue
             ctx = _heading_path_str(heading_path)
             context_text = f"{ctx}\n\n{md}".strip() if ctx else md
+            tbl_struct = extract_table_structure(item)
             out.append(StructuralChunk(
                 chunk_id=str(uuid.uuid4()), chunk_type="table", is_leaf=True,
                 text=md, context_text=context_text, parent_id=parent_id,
                 heading_path=list(heading_path), doc_items=[item],
                 chunk_index_in_parent=counter,
+                metadata={"table_structure": tbl_struct},
             ))
             counter += 1
 

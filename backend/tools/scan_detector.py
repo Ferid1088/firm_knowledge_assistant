@@ -20,6 +20,8 @@ _SCAN_THRESHOLD = 0.5  # majority-empty -> scanned
 
 @dataclass
 class ScanResult:
+    """Result of the scan-detection check for a single PDF document."""
+
     is_scanned: bool
     empty_pages: list[int]   # 1-based
     total_pages: int

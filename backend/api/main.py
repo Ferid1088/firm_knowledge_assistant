@@ -20,6 +20,7 @@ from typing import Optional
 
 # Load .env.langfuse early so config.py sees the env vars when it imports.
 def _bootstrap_langfuse_env() -> None:
+    """Load .env.langfuse into os.environ before config.py reads LANGFUSE_* variables."""
     env_file = Path(".env.langfuse")
     if not env_file.exists():
         return
@@ -63,6 +64,7 @@ app.include_router(admin_routes.router)
 
 @app.on_event("startup")
 def _startup() -> None:
+    """FastAPI lifespan startup: init DB schema, seed IAM data, and load Langfuse env."""
     # Load Langfuse env vars before config reads them
     _load_langfuse_env()
     init_db()
@@ -104,6 +106,7 @@ _ingest_lock = threading.Lock()
 
 
 def _refresh_bm25_indices() -> None:
+    """Rebuild BM25 indices from Qdrant and push them into the graph node cache."""
     from backend.tools.pipeline import rebuild_bm25_indices
     from backend.graph.nodes import set_bm25_indices
 
@@ -120,12 +123,16 @@ def _ensure_bm25_loaded() -> None:
 
 
 class ChatRequest(BaseModel):
+    """Incoming chat message with optional language and doc-type filters."""
+
     question: str
     active_lang_codes: Optional[list[str]] = None
     doc_type_filter: Optional[list[str]] = None  # user-selected type filter; None = all allowed
 
 
 class ChatResponse(BaseModel):
+    """Response returned by /api/chat and /api/conversations/{id}/messages."""
+
     answer: str
     answer_lang: str
     confidence: float
@@ -135,6 +142,8 @@ class ChatResponse(BaseModel):
 
 
 class IngestJobStatus(BaseModel):
+    """Live status of a background ingestion job returned by /api/ingest/{job_id}."""
+
     job_id: str
     status: str  # "queued" | "running" | "done" | "error"
     doc_id: str
@@ -144,6 +153,7 @@ class IngestJobStatus(BaseModel):
     parser_name: Optional[str] = None
     chunker_name: Optional[str] = None
     is_scanned: Optional[bool] = None
+    department_ids: Optional[list[str]] = None
     error: Optional[str] = None
 
 
@@ -175,6 +185,7 @@ def get_config():
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, user: iam.User = Depends(get_current_user)):
+    """Stateless single-turn chat: run the full RAG graph and return the answer."""
     from backend.services.observability import trace_run
 
     _ensure_bm25_loaded()
@@ -203,31 +214,62 @@ def chat(req: ChatRequest, user: iam.User = Depends(get_current_user)):
 
 @app.get("/api/users")
 def list_users():
+    """Return all users as lightweight dicts for the frontend user-switcher."""
     return [{"id": u.id, "name": u.name, "department_id": u.department_id, "role": u.role} for u in iam.list_users()]
 
 
 @app.get("/api/departments")
 def list_departments():
+    """Return all departments (used to populate dropdowns in the upload modal)."""
     return iam.list_departments()
+
+
+@app.get("/api/departments/allowed")
+def list_allowed_departments(request: Request):
+    """Return departments the current user may filter by (respects user_department_permissions)."""
+    from backend.services.admin import get_user_department_ids
+    from backend.services.auth import resolve_session as _resolve_session
+    session_id = request.cookies.get("rag_session", "")
+    session = _resolve_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = iam.get_user(session["user_id"])
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    all_depts = iam.list_departments()
+    active = [d for d in all_depts if d.get("status") == "active"]
+    if user.role_id == "superadmin":
+        return active
+    allowed_ids = get_user_department_ids(user.id)
+    if allowed_ids is None:
+        return active  # no restriction → all active
+    return [d for d in active if d["id"] in allowed_ids]
 
 
 # ── Conversations ──────────────────────────────────────────────────────────
 
 class ConversationCreate(BaseModel):
+    """Request body for POST /api/conversations."""
+
     title: Optional[str] = "New conversation"
 
 
 class ConversationRename(BaseModel):
+    """Request body for PATCH /api/conversations/{id} — rename or change status."""
+
     title: Optional[str] = None
     status: Optional[str] = None  # "active" | "archived" | "deleted" (set via PATCH)
 
 
 class ShareRequest(BaseModel):
+    """Request body for POST /api/conversations/{id}/share."""
+
     user_id: str
     permission: str  # "view" | "comment" | "edit"
 
 
 def _conversation_summary(conv: dict) -> dict:
+    """Extract the public-facing subset of a conversation row (no messages, no shares)."""
     return {
         "id": conv["id"],
         "title": conv["title"],
@@ -241,6 +283,7 @@ def _conversation_summary(conv: dict) -> dict:
 
 @app.post("/api/conversations")
 def create_conversation(req: ConversationCreate, user: iam.User = Depends(get_current_user)):
+    """Create a new conversation; enforces the per-day rate limit before creation."""
     try:
         rate_limit.apply_agent_rate_limits(user.id, "conversation")
     except RateLimitError as e:
@@ -251,11 +294,13 @@ def create_conversation(req: ConversationCreate, user: iam.User = Depends(get_cu
 
 @app.get("/api/conversations")
 def list_conversations_endpoint(user: iam.User = Depends(get_current_user)):
+    """Return summary rows for all active conversations visible to the current user."""
     return [_conversation_summary(c) for c in conversations.list_conversations(user)]
 
 
 @app.get("/api/conversations/{conversation_id}")
 def get_conversation_endpoint(conversation_id: str, user: iam.User = Depends(get_current_user)):
+    """Return full conversation data including decrypted messages and share list."""
     try:
         conv = conversations.get_conversation(conversation_id, user)
     except ConversationError as e:
@@ -269,6 +314,7 @@ def get_conversation_endpoint(conversation_id: str, user: iam.User = Depends(get
 
 @app.patch("/api/conversations/{conversation_id}")
 def update_conversation(conversation_id: str, req: ConversationRename, user: iam.User = Depends(get_current_user)):
+    """Rename a conversation or change its status (active/archived/deleted)."""
     try:
         if req.title is not None:
             conversations.rename_conversation(conversation_id, user, req.title)
@@ -288,6 +334,7 @@ def update_conversation(conversation_id: str, req: ConversationRename, user: iam
 
 @app.post("/api/conversations/{conversation_id}/share")
 def share_conversation_endpoint(conversation_id: str, req: ShareRequest, user: iam.User = Depends(get_current_user)):
+    """Share a conversation with another user at the specified permission level."""
     try:
         return sharing.share_conversation(conversation_id, user, req.user_id, req.permission)
     except ConversationError as e:
@@ -298,6 +345,7 @@ def share_conversation_endpoint(conversation_id: str, req: ShareRequest, user: i
 
 @app.delete("/api/conversations/{conversation_id}/share/{target_user_id}")
 def revoke_share_endpoint(conversation_id: str, target_user_id: str, user: iam.User = Depends(get_current_user)):
+    """Revoke a previously granted share for the given target user."""
     try:
         sharing.revoke_share(conversation_id, user, target_user_id)
         return {"ok": True}
@@ -384,19 +432,31 @@ def post_message(conversation_id: str, req: ChatRequest, user: iam.User = Depend
 def _run_ingest_job(
     job_id: str, tmp_path: Path,
     doc_type_id: str | None = None,
+    department_ids: list[str] | None = None,
     user_id: str = "",
     original_filename: str = "",
     client_ip: str = "",
     user_agent: str = "",
 ) -> None:
+    """Background worker: run full ingest pipeline, update the job status dict, then audit-log."""
     from backend.tools.pipeline import ingest
     import json as _json
 
     job = _ingest_jobs[job_id]
     job.status = "running"
     try:
+        # Detect type BEFORE acquiring the lock so the frontend can show it immediately.
+        resolved_doc_type = doc_type_id
+        if not resolved_doc_type:
+            from backend.tools.type_detector import detect_type
+            tr = detect_type(str(tmp_path))
+            resolved_doc_type = tr.doc_type
+            job.doc_type = resolved_doc_type
+            job.doc_type_confidence = tr.confidence
+
         with _ingest_lock:
-            result = ingest(str(tmp_path), doc_type_id=doc_type_id)
+            result = ingest(str(tmp_path), doc_type_id=resolved_doc_type,
+                            department_ids=department_ids or [])
             if result.is_scanned:
                 job.status = "error"
                 job.error = "PDF is scanned (no text layer). OCR path not yet built."
@@ -412,6 +472,7 @@ def _run_ingest_job(
         job.parser_name = result.parser_name
         job.chunker_name = result.chunker_name
         job.is_scanned = result.is_scanned
+        job.department_ids = department_ids or None
         job.status = "done"
     except Exception as e:
         job.status = "error"
@@ -456,10 +517,12 @@ def _run_ingest_job(
 def ingest_document(request: Request, background_tasks: BackgroundTasks,
                     file: UploadFile = File(...),
                     doc_type_id: Optional[str] = Query(default=None),
+                    department_ids: Optional[str] = Query(default=None),
                     user: iam.User = Depends(get_current_user)):
     """Upload a document and run the ingestion pipeline (parse -> chunk -> embed -> index).
 
-    doc_type_id: admin-defined document type ID selected by the user at upload time.
+    doc_type_id: auto-detected by the pipeline; optional override.
+    department_ids: comma-separated department IDs selected at upload time.
     Runs in the background; poll GET /api/ingest/{job_id} for status.
     """
     if not file.filename:
@@ -486,18 +549,24 @@ def ingest_document(request: Request, background_tasks: BackgroundTasks,
         or (request.client.host if request.client else "unknown")
     user_agent = request.headers.get("user-agent", "")
 
+    dept_ids: list[str] = [d.strip() for d in department_ids.split(",") if d.strip()] \
+        if department_ids else []
+
     job_id = uuid.uuid4().hex
     _ingest_jobs[job_id] = IngestJobStatus(
-        job_id=job_id, status="queued", doc_id=doc_id, doc_type=doc_type_id
+        job_id=job_id, status="queued", doc_id=doc_id,
+        doc_type=doc_type_id, department_ids=dept_ids or None,
     )
     background_tasks.add_task(
-        _run_ingest_job, job_id, tmp_path, doc_type_id, user.id, file.filename, client_ip, user_agent
+        _run_ingest_job, job_id, tmp_path, doc_type_id, dept_ids,
+        user.id, file.filename, client_ip, user_agent,
     )
     return _ingest_jobs[job_id]
 
 
 @app.get("/api/ingest/{job_id}", response_model=IngestJobStatus)
 def get_ingest_status(job_id: str):
+    """Poll the in-memory status of a background ingestion job."""
     job = _ingest_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="ingest job not found")

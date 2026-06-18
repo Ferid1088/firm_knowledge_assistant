@@ -9,6 +9,8 @@ from backend.config import AVAILABLE_LANGUAGES, DEFAULT_ANSWER_LANG
 
 @dataclass(frozen=True)
 class LangDef:
+    """Immutable per-language configuration: analyzer flags, sparse field name, and prompt key."""
+
     code: str
     decompound: bool
     sparse_field: str
@@ -16,7 +18,13 @@ class LangDef:
 
 
 class LanguageRegistry:
+    """Single source of truth for all pipeline language decisions.
+
+    No node ever writes a language code literally; everything goes through here.
+    """
+
     def __init__(self):
+        """Build the internal lang map from AVAILABLE_LANGUAGES and validate prompt files."""
         self._langs: dict[str, LangDef] = {}
         for code, decompound, sparse_field, prompt_key in AVAILABLE_LANGUAGES:
             self._langs[code] = LangDef(
@@ -30,14 +38,17 @@ class LanguageRegistry:
     # ── public API ──────────────────────────────────────────────────────────
 
     def all(self) -> list[LangDef]:
+        """Return all registered language definitions in insertion order."""
         return list(self._langs.values())
 
     def get(self, code: str) -> LangDef:
+        """Return the LangDef for ``code``, or the German default if unknown."""
         if code not in self._langs:
             return self._langs[DEFAULT_ANSWER_LANG]
         return self._langs[code]
 
     def sparse_fields(self) -> list[str]:
+        """Names of all per-language sparse vector fields (e.g. ["sparse_de", "sparse_en"])."""
         return [d.sparse_field for d in self._langs.values()]
 
     def resolve_answer_lang(self, detected: str | None, explicit: str | None = None) -> str:
@@ -56,6 +67,7 @@ class LanguageRegistry:
     # ── internal ────────────────────────────────────────────────────────────
 
     def _validate(self):
+        """Warn loudly if any active language is missing its expected prompt files."""
         from pathlib import Path
         import warnings
         missing = []

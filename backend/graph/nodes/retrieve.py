@@ -8,6 +8,7 @@ from backend.graph.utils import get_collection, get_embedder, get_bm25_indices
 
 
 def retrieve(state: RAGState) -> RAGState:
+    """Run dense + per-language BM25 fan-out for every sub-question and fuse results with RRF."""
     from backend.services.store import search as store_search
 
     sub_questions = state.get("sub_questions", [state["question"]])

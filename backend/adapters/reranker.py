@@ -21,7 +21,14 @@ _DEFAULT_INSTRUCTION = "Given a web search query, retrieve relevant passages tha
 
 
 class Qwen3Reranker:
+    """Causal-LM reranker that scores (query, document) pairs by comparing
+    the log-probability of the "yes" token against "no" after a fixed prompt.
+
+    Loaded once and reused across requests via the graph utils singleton.
+    """
+
     def __init__(self, model_id: str = RERANKER_MODEL_ID, device: str = "cpu", max_length: int = 1024):
+        """Load the causal-LM weights and cache the 'yes'/'no' token IDs for scoring."""
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
         self.model = AutoModelForCausalLM.from_pretrained(model_id).to(device).eval()
         self.device = device
@@ -32,10 +39,12 @@ class Qwen3Reranker:
         self._suffix_ids = self.tokenizer.encode(_SUFFIX, add_special_tokens=False)
 
     def _format(self, query: str, doc: str) -> str:
+        """Wrap query and document in the instruction template expected by Qwen3-Reranker."""
         return f"<Instruct>: {_DEFAULT_INSTRUCTION}\n<Query>: {query}\n<Document>: {doc}"
 
     @torch.no_grad()
     def predict(self, pairs: list[tuple[str, str]], batch_size: int = 4) -> list[float]:
+        """Score (query, document) pairs; returns probabilities in [0, 1] order-matched to pairs."""
         scores: list[float] = []
         for i in range(0, len(pairs), batch_size):
             batch = pairs[i:i + batch_size]

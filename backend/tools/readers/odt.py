@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class ODTReaderTool(FileReaderTool):
+    """Extract paragraphs, headings, and tables from ODT files via odfpy."""
+
     metadata = ToolMetadata(
         name="reader:odt",
         version="1.0.0",
@@ -31,6 +33,7 @@ class ODTReaderTool(FileReaderTool):
     format_name = "odt"
 
     def _validate_dependencies(self) -> None:
+        """Check that odfpy is installed (pip name 'odfpy', import name 'odf')."""
         # pip: odfpy, import: odf
         import importlib
         try:
@@ -42,6 +45,7 @@ class ODTReaderTool(FileReaderTool):
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Parse the ODT file and return paragraphs, headings, and tables."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

@@ -12,6 +12,7 @@ from backend.graph.utils import (
 
 
 def prepare_query(state: RAGState) -> RAGState:
+    """Detect language, resolve answer_lang, cache translations, decompose multi-part queries."""
     question = state["question"]
     active_codes = state.get("active_lang_codes", ["de"])
 

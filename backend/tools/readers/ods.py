@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class ODSReaderTool(FileReaderTool):
+    """Extract sheets and cell values from ODS spreadsheet files via odfpy."""
+
     metadata = ToolMetadata(
         name="reader:ods",
         version="1.0.0",
@@ -32,6 +34,7 @@ class ODSReaderTool(FileReaderTool):
     format_name = "ods"
 
     def _validate_dependencies(self) -> None:
+        """Check that odfpy is installed (pip name 'odfpy', import name 'odf')."""
         import importlib
         try:
             importlib.import_module("odf")
@@ -42,6 +45,7 @@ class ODSReaderTool(FileReaderTool):
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Iterate all Table sheets in the ODS file and return cell data as table dicts."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

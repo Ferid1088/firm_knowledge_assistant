@@ -34,10 +34,12 @@ _HEADER_DENSITY_THRESHOLD = 2  # at least 2 header keys in block
 
 
 def _looks_like_header(text: str) -> bool:
+    """Return True if text contains enough header-key lines to be an email header block."""
     return len(_HEADER_KEYS.findall(text)) >= _HEADER_DENSITY_THRESHOLD
 
 
 def _extract_email_meta(text: str) -> dict:
+    """Extract {from, to, date, subject} from an email header text block."""
     return {
         "from":    (m.group(1).strip() if (m := _FROM_RE.search(text)) else ""),
         "to":      (m.group(1).strip() if (m := _TO_RE.search(text)) else ""),
@@ -55,6 +57,7 @@ def _chunk_docling(doc) -> list[StructuralChunk]:
     parent_id: str | None = None
 
     def flush_email(blocks):
+        """Combine all buffered blocks into one email_message StructuralChunk."""
         nonlocal counter, parent_id
         if not blocks:
             return
@@ -123,6 +126,7 @@ def _chunk_eml(result: ParseResult) -> list[StructuralChunk]:
     out: list[StructuralChunk] = []
 
     def _walk(msg, depth=0):
+        """Recursively walk MIME parts and append plain-text leaves to out."""
         if msg.is_multipart():
             for part in msg.get_payload(decode=False):
                 _walk(part, depth + 1)
@@ -155,6 +159,7 @@ def _chunk_eml(result: ParseResult) -> list[StructuralChunk]:
 
 
 def chunk(result: ParseResult) -> list[StructuralChunk]:
+    """Route to EML or Docling chunker depending on parser_type."""
     if result.parser_type == "eml":
         return _chunk_eml(result)
     return _chunk_docling(result.doc)

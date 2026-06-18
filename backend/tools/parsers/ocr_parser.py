@@ -1,7 +1,7 @@
 """OCR parser — D: scanned_image.
 
 Pilot status: QUARANTINED. OCR (Tesseract/Vision) path is designed but not yet
-built per CLAUDE.md ("scanned/handwritten/drawings — OUT now, designed-for").
+built ("scanned/handwritten/drawings — OUT now, designed-for").
 Raises OcrNotBuiltError so the pipeline can surface a clear error, not a crash.
 
 To enable: install pytesseract + poppler, set OCR_ENABLED=True in config, and
@@ -16,6 +16,7 @@ class OcrNotBuiltError(RuntimeError):
 
 
 def parse(pdf_path: str) -> ParseResult:
+    """Raise OcrNotBuiltError — OCR path is not yet implemented for the pilot."""
     raise OcrNotBuiltError(
         "Document type 'scanned_image' requires the OCR pipeline (Tesseract / "
         "Docling with do_ocr=True), which is not yet built for this pilot. "

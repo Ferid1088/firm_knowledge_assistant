@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class XLSXReaderTool(FileReaderTool):
+    """Extract one table per sheet from Excel workbooks via openpyxl."""
+
     metadata = ToolMetadata(
         name="reader:xlsx",
         version="1.0.0",
@@ -32,6 +34,7 @@ class XLSXReaderTool(FileReaderTool):
     format_name = "xlsx"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Read the workbook with data_only=True and return all sheets as table dicts."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

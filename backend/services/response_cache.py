@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
+    """Return current UTC time as ISO string."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -122,6 +123,7 @@ def put_cache(
 
 
 def _evict_expired(conn: Any, now: str, ttl_seconds: int) -> None:
+    """Delete rows older than ttl_seconds from response_cache."""
     if ttl_seconds <= 0:
         return
     from datetime import timedelta
@@ -133,6 +135,7 @@ def _evict_expired(conn: Any, now: str, ttl_seconds: int) -> None:
 
 
 def _evict_lru_if_needed(conn: Any, max_entries: int) -> None:
+    """Evict the oldest 10% of rows when the table exceeds max_entries (LRU approximation)."""
     if max_entries <= 0:
         return
     count = conn.execute("SELECT COUNT(*) FROM response_cache").fetchone()[0]

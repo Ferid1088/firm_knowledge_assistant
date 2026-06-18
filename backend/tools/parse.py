@@ -18,6 +18,7 @@ _MIN_TEXT_CHARS = 20
 
 
 def make_converter() -> DocumentConverter:
+    """Build a Docling DocumentConverter with TableFormer (accurate) and OCR disabled."""
     opts = PdfPipelineOptions()
     opts.do_table_structure = True
     opts.table_structure_options.mode = TableFormerMode.ACCURATE

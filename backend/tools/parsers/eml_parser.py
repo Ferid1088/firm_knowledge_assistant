@@ -19,10 +19,11 @@ from backend.tools.parsers.parse_result import ParseResult
 
 
 class EmlParserError(RuntimeError):
-    pass
+    """Raised when an EML file cannot be parsed or has the wrong format."""
 
 
 def parse(file_path: str) -> ParseResult:
+    """Parse a native .eml or .msg file and return a ParseResult with the message object."""
     path = Path(file_path)
     if path.suffix.lower() not in (".eml", ".msg"):
         raise EmlParserError(

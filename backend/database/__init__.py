@@ -16,6 +16,7 @@ _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 
 def get_connection() -> sqlite3.Connection:
+    """Open a new SQLite connection to DATABASE_PATH with Row factory and FK enforcement."""
     db_path = Path(DATABASE_PATH)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)

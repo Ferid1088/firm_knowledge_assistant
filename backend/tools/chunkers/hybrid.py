@@ -12,6 +12,7 @@ _prose_chunker = None
 
 
 def _get_prose_chunker():
+    """Lazy-load and cache the shared HybridChunker instance."""
     global _prose_chunker
     if _prose_chunker is None:
         _prose_chunker = make_prose_chunker()
@@ -19,4 +20,5 @@ def _get_prose_chunker():
 
 
 def chunk(result: ParseResult) -> list[StructuralChunk]:
+    """Delegate to chunk_document with a lazy-loaded prose chunker."""
     return chunk_document(result.doc, _get_prose_chunker())

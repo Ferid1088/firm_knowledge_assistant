@@ -10,11 +10,14 @@ from backend.config import SEED_DEPARTMENTS
 
 
 def _now() -> str:
+    """Return the current UTC time as an ISO-8601 string for DB timestamps."""
     return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
 class User:
+    """Immutable snapshot of an authenticated user, including role and resolved permissions."""
+
     id: str
     username: str
     name: str
@@ -27,6 +30,7 @@ class User:
 
     @property
     def is_superadmin(self) -> bool:
+        """Return True when the user's role_id is 'superadmin'."""
         return self.role_id == "superadmin"
 
 
@@ -78,6 +82,12 @@ def init_seed_data() -> None:
                 "INSERT OR IGNORE INTO departments (id, name, code, status, created_at) VALUES (?,?,?,'active',?)",
                 (dept_id, name, code, now),
             )
+        from backend.config import SEED_DOC_TYPES
+        for i, (dt_id, dt_name, dt_desc) in enumerate(SEED_DOC_TYPES, start=1):
+            conn.execute(
+                "INSERT OR IGNORE INTO document_types (id, name, code, description, status, created_at) VALUES (?,?,?,?,'active',?)",
+                (dt_id, dt_name, str(i), dt_desc, now),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -86,6 +96,7 @@ def init_seed_data() -> None:
 # ── User helpers ─────────────────────────────────────────────────────────────
 
 def _permissions_for_role(role_id: str, conn) -> list[str]:
+    """Return "resource:action" strings for every permission assigned to role_id."""
     rows = conn.execute(
         """SELECT p.resource || ':' || p.action
            FROM permissions p
@@ -97,6 +108,12 @@ def _permissions_for_role(role_id: str, conn) -> list[str]:
 
 
 def _doc_type_ids_for_user(user_id: str, conn) -> list[str] | None:
+    """Return the list of doc_type_ids the user may access, or None for unrestricted.
+
+    None means the user has no per-type restrictions (all active types are allowed).
+    An empty list would mean zero types allowed, but we avoid that state — rows are
+    only inserted when a restriction is explicitly set.
+    """
     rows = conn.execute(
         "SELECT doc_type_id FROM user_doc_type_permissions WHERE user_id = ?",
         (user_id,),
@@ -107,6 +124,7 @@ def _doc_type_ids_for_user(user_id: str, conn) -> list[str] | None:
 
 
 def get_user(user_id: str) -> User | None:
+    """Fetch a User by primary key, including role, permissions, and doc-type restrictions."""
     conn = get_connection()
     try:
         row = conn.execute(
@@ -139,6 +157,7 @@ def get_user_by_username(username: str) -> dict | None:
 
 
 def list_users() -> list[User]:
+    """Return all users with their roles and permissions, ordered by name."""
     conn = get_connection()
     try:
         rows = conn.execute(
@@ -158,6 +177,7 @@ def list_users() -> list[User]:
 
 
 def list_departments() -> list[dict]:
+    """Return all department rows as dicts, ordered by name."""
     conn = get_connection()
     try:
         rows = conn.execute("SELECT * FROM departments ORDER BY name").fetchall()
@@ -167,6 +187,11 @@ def list_departments() -> list[dict]:
 
 
 def create_user(username: str, password_hash: str, name: str, department_id: str, role_id: str) -> User:
+    """Insert a new user row and return the hydrated User object.
+
+    ``password_hash`` must already be the output of ``auth.hash_password``; this
+    function never receives or stores plain-text passwords.
+    """
     user_id = str(uuid.uuid4())
     now = _now()
     conn = get_connection()
@@ -184,6 +209,7 @@ def create_user(username: str, password_hash: str, name: str, department_id: str
 
 
 def count_users() -> int:
+    """Return total number of user rows (used by the first-run setup wizard)."""
     conn = get_connection()
     try:
         return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -194,6 +220,7 @@ def count_users() -> int:
 # ── Access control ────────────────────────────────────────────────────────────
 
 def can_access_conversation(user: User, conversation: dict, conn=None) -> bool:
+    """Return True if user owns the conversation or has an active share entry."""
     if conversation["owner_user_id"] == user.id:
         return True
     own_conn = conn is None
@@ -210,6 +237,11 @@ def can_access_conversation(user: User, conversation: dict, conn=None) -> bool:
 
 
 def can_agent_act(user: User, action: str, conversation: dict | None = None) -> bool:
+    """Return True if the user may perform a mutating action on the conversation.
+
+    Currently only the owner may rename/archive/delete their own conversation.
+    Shared viewers are excluded from mutations.
+    """
     if conversation is None:
         return True
     return conversation["owner_user_id"] == user.id

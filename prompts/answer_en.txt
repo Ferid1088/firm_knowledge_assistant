@@ -18,4 +18,5 @@ Never invent information. Quote VERBATIM — no paraphrasing. Quotes may be in t
 {history}Sources:
 {sources}
 
+REMINDER: Answer in English only.
 Question: {question}

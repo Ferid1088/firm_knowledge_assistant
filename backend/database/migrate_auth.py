@@ -16,6 +16,7 @@ from backend.database import get_connection
 
 
 def already_migrated(conn) -> bool:
+    """Return True if the roles table already exists (migration already ran)."""
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='roles'"
     ).fetchone()
@@ -23,6 +24,7 @@ def already_migrated(conn) -> bool:
 
 
 def run_migration() -> None:
+    """Apply the auth migration: add roles/permissions, recreate users/departments with auth columns."""
     conn = get_connection()
     try:
         if already_migrated(conn):

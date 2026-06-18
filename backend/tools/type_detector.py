@@ -58,7 +58,7 @@ You are a document classification expert. Given a text sample from a PDF, classi
 - correspondence    : email, letter, or memo
 
 Respond with ONLY valid JSON in this exact format, nothing else:
-{"doc_type": "<type>", "confidence": <0.0 to 1.0>}
+{{"doc_type": "<type>", "confidence": <0.0 to 1.0>}}
 
 Text sample:
 \"\"\"
@@ -69,6 +69,8 @@ Text sample:
 
 @dataclass
 class TypeDetectionResult:
+    """Output of the LLM-based document-type classifier."""
+
     doc_type: str       # one of VALID_TYPES
     confidence: float   # 0..1
     sampled_pages: list[int]  # 1-based

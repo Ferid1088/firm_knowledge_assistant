@@ -20,6 +20,7 @@ from backend.services.iam import User
 
 
 def _now() -> str:
+    """Return current UTC time as ISO-8601 string for DB timestamps."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -30,6 +31,11 @@ class ConversationError(Exception):
 # ── CRUD ───────────────────────────────────────────────────────────────────
 
 def create_conversation(user: User, title: str = "New conversation") -> dict:
+    """Create a new conversation with a fresh DEK and return the row as a dict.
+
+    The DEK is generated locally, AES-GCM wrapped with the master key, and
+    stored as ``wrapped_dek`` in the DB — plaintext DEK never persisted.
+    """
     conv_id = str(uuid.uuid4())
     dek = security.generate_dek()
     wrapped = security.wrap_dek(dek)
@@ -51,6 +57,11 @@ def create_conversation(user: User, title: str = "New conversation") -> dict:
 
 
 def get_conversation_row(conversation_id: str, conn=None) -> dict:
+    """Fetch a raw conversation row without access-control checks.
+
+    Internal helper used by message operations that have already verified access
+    at the API layer. Never call this directly from an API route handler.
+    """
     own_conn = conn is None
     conn = conn or get_connection()
     try:
@@ -83,6 +94,7 @@ def get_conversation(conversation_id: str, user: User) -> dict:
 
 
 def list_conversations(user: User) -> list[dict]:
+    """Return all non-deleted conversations the user owns or has been shared into."""
     conn = get_connection()
     try:
         rows = conn.execute(
@@ -108,6 +120,12 @@ def add_message(
     claims: list[dict] | None = None,
     artifact_chunks: list[dict] | None = None,
 ) -> dict:
+    """Encrypt and store a message; promote conversation status from draft → active.
+
+    The message content is AES-GCM encrypted with the conversation's unwrapped DEK.
+    A SHA-256 content hash and Ed25519 signature are stored alongside for integrity
+    verification (``get_messages`` checks these on read).
+    """
     conn = get_connection()
     try:
         conv = get_conversation_row(conversation_id, conn=conn)
@@ -182,6 +200,7 @@ class ConversationContext:
     """Builds an LLM-ready history within a token budget (small-to-big over turns)."""
 
     def __init__(self, conversation_id: str, max_tokens: int = MAX_CONTEXT_TOKENS):
+        """Bind to a conversation and set the token budget for context trimming."""
         self.conversation_id = conversation_id
         self.max_tokens = max_tokens
 
@@ -208,6 +227,7 @@ class ConversationContext:
 
 
 def get_conversation_context(conversation_id: str, user: User, max_tokens: int = MAX_CONTEXT_TOKENS) -> list[dict]:
+    """Return the trimmed message history for a conversation after an access check."""
     get_conversation(conversation_id, user)  # access check
     return ConversationContext(conversation_id, max_tokens).build()
 
@@ -215,6 +235,7 @@ def get_conversation_context(conversation_id: str, user: User, max_tokens: int =
 # ── Lifecycle ────────────────────────────────────────────────────────────────
 
 def _set_status(conversation_id: str, user: User, new_status: str, action: str) -> dict:
+    """Internal helper: set conversation status and emit an audit log entry."""
     from backend.services.iam import can_agent_act
 
     conn = get_connection()
@@ -234,6 +255,7 @@ def _set_status(conversation_id: str, user: User, new_status: str, action: str) 
 
 
 def archive_conversation(conversation_id: str, user: User) -> dict:
+    """Move conversation to 'archived' status (reversible)."""
     return _set_status(conversation_id, user, "archived", "conversation_archived")
 
 
@@ -243,10 +265,12 @@ def delete_conversation(conversation_id: str, user: User) -> dict:
 
 
 def restore_conversation(conversation_id: str, user: User) -> dict:
+    """Restore an archived conversation to 'active' status."""
     return _set_status(conversation_id, user, "active", "conversation_restored")
 
 
 def rename_conversation(conversation_id: str, user: User, title: str) -> dict:
+    """Update the conversation title (owner only)."""
     from backend.services.iam import can_agent_act
 
     conn = get_connection()

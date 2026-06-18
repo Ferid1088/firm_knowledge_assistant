@@ -29,6 +29,7 @@ _NONCE_SIZE = 12  # AES-GCM standard nonce size
 
 
 def _load_or_create_bytes(path: str, generator) -> bytes:
+    """Read bytes from path, or call generator() to create them, write, and chmod 600."""
     p = Path(path)
     if p.exists():
         return p.read_bytes()
@@ -40,10 +41,12 @@ def _load_or_create_bytes(path: str, generator) -> bytes:
 
 
 def _master_key() -> bytes:
+    """Load or generate the process-wide AES-256 master key from MASTER_KEY_PATH."""
     return _load_or_create_bytes(MASTER_KEY_PATH, lambda: AESGCM.generate_key(bit_length=256))
 
 
 def _signing_key() -> Ed25519PrivateKey:
+    """Load or generate the Ed25519 signing key from SIGNING_KEY_PATH."""
     raw = _load_or_create_bytes(
         SIGNING_KEY_PATH,
         lambda: Ed25519PrivateKey.generate().private_bytes(
@@ -71,6 +74,7 @@ def wrap_dek(dek: bytes) -> bytes:
 
 
 def unwrap_dek(wrapped: bytes) -> bytes:
+    """Decrypt a wrapped DEK back to plaintext bytes using the master key."""
     aesgcm = AESGCM(_master_key())
     nonce, ciphertext = wrapped[:_NONCE_SIZE], wrapped[_NONCE_SIZE:]
     return aesgcm.decrypt(nonce, ciphertext, None)
@@ -87,6 +91,7 @@ def encrypt_message(plaintext: str, dek: bytes) -> tuple[bytes, bytes]:
 
 
 def decrypt_message(ciphertext: bytes, nonce: bytes, dek: bytes) -> str:
+    """AES-256-GCM decrypt -> plaintext str."""
     aesgcm = AESGCM(dek)
     return aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
 
@@ -94,14 +99,17 @@ def decrypt_message(ciphertext: bytes, nonce: bytes, dek: bytes) -> str:
 # ── Integrity: content hash + signature ───────────────────────────────────────
 
 def content_hash(plaintext: str) -> str:
+    """Return hex SHA-256 of plaintext for integrity checking."""
     return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
 
 
 def sign(digest_hex: str) -> bytes:
+    """Ed25519-sign a hex digest; stored alongside each message for tamper detection."""
     return _signing_key().sign(digest_hex.encode("utf-8"))
 
 
 def verify(digest_hex: str, signature: bytes) -> bool:
+    """Verify an Ed25519 signature; returns False on any mismatch or error."""
     public_key: Ed25519PublicKey = _signing_key().public_key()
     try:
         public_key.verify(signature, digest_hex.encode("utf-8"))

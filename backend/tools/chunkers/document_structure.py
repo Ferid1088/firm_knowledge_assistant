@@ -23,7 +23,7 @@ import re
 import uuid
 from docling_core.types.doc import DocItemLabel
 
-from backend.tools.chunk import StructuralChunk
+from backend.tools.chunk import StructuralChunk, extract_table_structure
 from backend.tools.parsers.parse_result import ParseResult
 
 # Matches: "3.", "3.2", "3.2.1", "A.1", "A.1.2"
@@ -31,10 +31,12 @@ _NUMBERED_HEADING = re.compile(r"^\s*([A-Z]|\d+)(\.\d+)*\.?\s+\w")
 
 
 def _heading_path_str(path: list[str]) -> str:
+    """Render heading path as breadcrumb string."""
     return " > ".join(path) if path else ""
 
 
 def chunk(result: ParseResult) -> list[StructuralChunk]:
+    """Split the document into section leaves by numbered headings; merge body text into each section."""
     doc = result.doc
     out: list[StructuralChunk] = []
     heading_path: list[str] = []
@@ -46,6 +48,7 @@ def chunk(result: ParseResult) -> list[StructuralChunk]:
     current_section: dict | None = None
 
     def close_section():
+        """Flush the current open section to the output list."""
         nonlocal counter
         if current_section is None:
             return
@@ -118,11 +121,13 @@ def chunk(result: ParseResult) -> list[StructuralChunk]:
                 continue
             ctx = _heading_path_str(heading_path)
             context_text = f"{ctx}\n\n{md}".strip() if ctx else md
+            tbl_struct = extract_table_structure(item)
             out.append(StructuralChunk(
                 chunk_id=str(uuid.uuid4()), chunk_type="table", is_leaf=True,
                 text=md, context_text=context_text, parent_id=parent_id,
                 heading_path=list(heading_path), doc_items=[item],
                 chunk_index_in_parent=counter,
+                metadata={"table_structure": tbl_struct},
             ))
             counter += 1
 

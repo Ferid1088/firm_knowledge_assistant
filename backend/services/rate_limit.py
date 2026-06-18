@@ -21,7 +21,10 @@ _WINDOWS = {
 
 
 class RateLimitError(Exception):
+    """Raised when a user exceeds the configured rate limit for a given window."""
+
     def __init__(self, kind: str, limit: int):
+        """Store the rate-limit kind and threshold for the API layer to surface as HTTP 429."""
         self.kind = kind
         self.limit = limit
         super().__init__(f"rate limit exceeded for '{kind}': max {limit} per window")
@@ -56,6 +59,7 @@ def apply_agent_rate_limits(user_id: str, kind: str) -> None:
 
 
 def get_usage(user_id: str, kind: str) -> dict:
+    """Return {used, limit} for the current window without incrementing the counter."""
     window_type, fmt, limit = _WINDOWS[kind]
     window_start = datetime.now(timezone.utc).strftime(fmt)
 

@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class MSGReaderTool(FileReaderTool):
+    """Read Outlook MSG files and extract subject, body, and metadata via extract-msg."""
+
     metadata = ToolMetadata(
         name="reader:msg",
         version="1.0.0",
@@ -31,6 +33,7 @@ class MSGReaderTool(FileReaderTool):
     format_name = "msg"
 
     def _validate_dependencies(self) -> None:
+        """Verify extract-msg is installed (pip name 'extract-msg', imports as 'extract_msg')."""
         # pip: extract-msg, import: extract_msg
         import importlib
         try:
@@ -42,6 +45,7 @@ class MSGReaderTool(FileReaderTool):
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Open the MSG file with extract-msg and return structured email content."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

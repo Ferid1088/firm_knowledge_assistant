@@ -14,6 +14,7 @@ from backend.services import security
 
 
 def _now() -> str:
+    """Return current UTC time as ISO string."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -27,6 +28,7 @@ def log_action(
     decision: str | None = None,
     ip_address: str | None = None,
 ) -> None:
+    """Insert a row into audit_log; commits only when called without an external conn."""
     own_conn = conn is None
     conn = conn or get_connection()
     try:

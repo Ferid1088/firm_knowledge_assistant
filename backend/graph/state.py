@@ -4,6 +4,12 @@ from typing import TypedDict, Optional
 
 
 class RAGState(TypedDict, total=False):
+    """All mutable state carried through the LangGraph RAG pipeline.
+
+    Fields are optional (total=False) so each node only populates what it owns;
+    downstream nodes default missing fields rather than crashing.
+    """
+
     # Input
     question: str
     active_lang_codes: list[str]       # e.g. ["de", "en"]

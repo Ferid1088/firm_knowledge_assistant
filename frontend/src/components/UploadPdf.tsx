@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { DocumentType, IngestJobStatus } from "@/lib/types";
+import { useRef, useState, useCallback, useEffect } from "react";
+import type { Department, IngestJobStatus } from "@/lib/types";
 import { UploadIcon } from "@/components/icons";
 
-const POLL_MS = 2000;
+const POLL_MS_FAST = 500;   // while waiting for type detection
+const POLL_MS_SLOW = 2000;  // after type is known
+const TOAST_TTL = 7000;
 
 const ALLOWED_ACCEPT = [
   ".pdf", ".docx", ".xlsx", ".xls", ".csv",
@@ -12,35 +14,175 @@ const ALLOWED_ACCEPT = [
   ".png", ".jpg", ".jpeg", ".tiff", ".tif",
 ].join(",");
 
+// Human-readable labels for the 10 types returned by type_detector.py
+const DETECTED_TYPE_LABELS: Record<string, string> = {
+  prose_text:       "Fließtext",
+  table_structured: "Tabellendokument",
+  norm_standard:    "Norm / Standard",
+  technical_manual: "Technisches Handbuch",
+  legal_contract:   "Vertrag / Rechtsdokument",
+  report_study:     "Bericht / Studie",
+  form_template:    "Formular / Vorlage",
+  invoice_bill:     "Rechnung / Lieferschein",
+  presentation:     "Präsentation",
+  correspondence:   "E-Mail / Korrespondenz",
+};
+
+interface Toast {
+  id: number;
+  filename: string;
+  detectedType: string | null;
+  nChunks: number | null;
+  isError: boolean;
+  errorMsg: string | null;
+  isScanned: boolean;
+}
+
 interface Props {
-  /** User's allowed doc type IDs — null means unrestricted (sees all). */
   allowedDocTypeIds: string[] | null;
 }
 
-export function UploadPdf({ allowedDocTypeIds }: Props) {
+let _toastSeq = 0;
+
+export function UploadPdf({ allowedDocTypeIds: _allowedDocTypeIds }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [allDocTypes, setAllDocTypes] = useState<DocumentType[]>([]);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedDocType, setSelectedDocType] = useState<string>("");
   const [jobs, setJobs] = useState<IngestJobStatus[]>([]);
   const [busy, setBusy] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
-  // Fetch all allowed doc types
+  // Department modal state
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [selectedDeptIds, setSelectedDeptIds] = useState<string[]>([]);
+
   useEffect(() => {
-    fetch("/api/doc-types", { credentials: "include" })
+    fetch("/api/departments", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : []))
-      .then((data: DocumentType[]) => {
-        if (!Array.isArray(data)) return;
-        // Restrict to user's allowed types if set
-        const visible = allowedDocTypeIds
-          ? data.filter((dt) => allowedDocTypeIds.includes(dt.id))
-          : data;
-        setAllDocTypes(visible);
-        if (visible.length > 0) setSelectedDocType(visible[0].id);
+      .then((data: Department[]) => {
+        if (Array.isArray(data)) setDepartments(data.filter((d) => d.status === "active"));
       })
       .catch(() => {});
-  }, [allowedDocTypeIds]);
+  }, []);
+
+  const pushToast = useCallback((t: Omit<Toast, "id">) => {
+    const id = ++_toastSeq;
+    setToasts((prev) => [...prev, { ...t, id }]);
+    setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), TOAST_TTL);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
+  function detectedLabel(key: string | null) {
+    if (!key) return null;
+    return DETECTED_TYPE_LABELS[key] ?? key;
+  }
+
+  function poll(jobId: string) {
+    let typeToastShown = false;
+    let slowTimer: ReturnType<typeof setInterval> | null = null;
+
+    // Fast poll until we get a doc_type, then switch to slow poll
+    const fastTimer = setInterval(async () => {
+      const res = await fetch(`/api/ingest/${jobId}`, { credentials: "include" });
+      if (!res.ok) { clearInterval(fastTimer); return; }
+      const status: IngestJobStatus = await res.json();
+      setJobs((prev) => prev.map((j) => (j.job_id === jobId ? status : j)));
+
+      // Fire type toast the moment doc_type appears (running or done)
+      if (!typeToastShown && status.doc_type) {
+        typeToastShown = true;
+        pushToast({
+          filename: status.doc_id,
+          detectedType: detectedLabel(status.doc_type),
+          nChunks: null,
+          isError: false,
+          errorMsg: null,
+          isScanned: false,
+        });
+      }
+
+      if (status.status === "done" || status.status === "error") {
+        clearInterval(fastTimer);
+        if (status.status === "error") {
+          pushToast({
+            filename: status.doc_id,
+            detectedType: detectedLabel(status.doc_type),
+            nChunks: null,
+            isError: true,
+            errorMsg: status.error,
+            isScanned: status.is_scanned ?? false,
+          });
+        }
+        return;
+      }
+
+      // Once we have the type, slow down polling (still in "running")
+      if (typeToastShown && !slowTimer) {
+        clearInterval(fastTimer);
+        slowTimer = setInterval(async () => {
+          const r2 = await fetch(`/api/ingest/${jobId}`, { credentials: "include" });
+          if (!r2.ok) { clearInterval(slowTimer!); return; }
+          const s2: IngestJobStatus = await r2.json();
+          setJobs((prev) => prev.map((j) => (j.job_id === jobId ? s2 : j)));
+          if (s2.status === "done" || s2.status === "error") {
+            clearInterval(slowTimer!);
+            if (s2.status === "error") {
+              pushToast({
+                filename: s2.doc_id,
+                detectedType: detectedLabel(s2.doc_type),
+                nChunks: null,
+                isError: true,
+                errorMsg: s2.error,
+                isScanned: s2.is_scanned ?? false,
+              });
+            }
+          }
+        }, POLL_MS_SLOW);
+      }
+    }, POLL_MS_FAST);
+  }
+
+  async function uploadFile(file: File, deptIds: string[]) {
+    setBusy(true);
+    const placeholder: IngestJobStatus = {
+      job_id: "", status: "queued", doc_id: file.name,
+      n_chunks: null, doc_type: null, doc_type_confidence: null,
+      parser_name: null, chunker_name: null, is_scanned: null, error: null,
+    };
+    setJobs((prev) => [placeholder, ...prev]);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      // No doc_type_id — backend auto-detects via type_detector.py
+      const deptParam = deptIds.length > 0 ? `?department_ids=${deptIds.join(",")}` : "";
+      const res = await fetch(`/api/ingest${deptParam}`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      const initial: IngestJobStatus = res.ok
+        ? await res.json()
+        : {
+            job_id: "", status: "error", doc_id: file.name,
+            n_chunks: null, doc_type: null, doc_type_confidence: null,
+            parser_name: null, chunker_name: null, is_scanned: null,
+            error: await res.text(),
+          };
+      setJobs((prev) => [initial, ...prev.slice(1)]);
+      if (initial.job_id) poll(initial.job_id);
+    } catch (err) {
+      setJobs((prev) => [{
+        ...prev[0], status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      }, ...prev.slice(1)]);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function openPicker() {
     inputRef.current?.click();
@@ -50,84 +192,36 @@ export function UploadPdf({ allowedDocTypeIds }: Props) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    setPendingFile(file);
-    setModalOpen(true);
-  }
 
-  async function confirmUpload() {
-    if (!pendingFile) return;
-    setModalOpen(false);
-    setBusy(true);
-
-    const file = pendingFile;
-    setPendingFile(null);
-
-    const placeholder: IngestJobStatus = {
-      job_id: "",
-      status: "queued",
-      doc_id: file.name,
-      n_chunks: null,
-      doc_type: selectedDocType || null,
-      doc_type_confidence: null,
-      parser_name: null,
-      chunker_name: null,
-      is_scanned: null,
-      error: null,
-    };
-    setJobs((prev) => [placeholder, ...prev]);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const url = selectedDocType
-        ? `/api/ingest?doc_type_id=${encodeURIComponent(selectedDocType)}`
-        : "/api/ingest";
-
-      const res = await fetch(url, { method: "POST", body: formData, credentials: "include" });
-      const initial: IngestJobStatus = res.ok
-        ? await res.json()
-        : {
-            job_id: "",
-            status: "error",
-            doc_id: file.name,
-            n_chunks: null,
-            doc_type: null,
-            doc_type_confidence: null,
-            parser_name: null,
-            chunker_name: null,
-            is_scanned: null,
-            error: await res.text(),
-          };
-
-      setJobs((prev) => [initial, ...prev.slice(1)]);
-      if (initial.job_id) poll(initial.job_id);
-    } catch (err) {
-      setJobs((prev) => [
-        {
-          ...prev[0],
-          status: "error",
-          error: err instanceof Error ? err.message : String(err),
-        },
-        ...prev.slice(1),
-      ]);
-    } finally {
-      setBusy(false);
+    if (departments.length > 0) {
+      // Show department selection modal
+      setPendingFile(file);
+      setSelectedDeptIds([]);
+      setModalOpen(true);
+    } else {
+      // No departments defined — upload without department
+      uploadFile(file, []);
     }
   }
 
-  function poll(jobId: string) {
-    const timer = setInterval(async () => {
-      const res = await fetch(`/api/ingest/${jobId}`, { credentials: "include" });
-      if (!res.ok) { clearInterval(timer); return; }
-      const status: IngestJobStatus = await res.json();
-      setJobs((prev) => prev.map((j) => (j.job_id === jobId ? status : j)));
-      if (status.status === "done" || status.status === "error") clearInterval(timer);
-    }, POLL_MS);
+  function toggleDept(id: string) {
+    setSelectedDeptIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   }
 
-  function docTypeName(id: string | null) {
-    if (!id) return null;
-    return allDocTypes.find((dt) => dt.id === id)?.name ?? id;
+  function confirmUpload() {
+    if (!pendingFile) return;
+    setModalOpen(false);
+    uploadFile(pendingFile, selectedDeptIds);
+    setPendingFile(null);
+    setSelectedDeptIds([]);
+  }
+
+  function cancelUpload() {
+    setModalOpen(false);
+    setPendingFile(null);
+    setSelectedDeptIds([]);
   }
 
   return (
@@ -147,63 +241,86 @@ export function UploadPdf({ allowedDocTypeIds }: Props) {
               <span className="sidebar-upload-job-name" title={job.doc_id}>{job.doc_id}</span>
               <span className="sidebar-upload-job-status">
                 {job.status === "queued" && "wartet…"}
-                {job.status === "running" && "verarbeitet…"}
-                {job.status === "done" && `✓ ${job.n_chunks} Chunks${docTypeName(job.doc_type) ? ` · ${docTypeName(job.doc_type)}` : ""}`}
-                {job.status === "error" && (job.is_scanned ? "Gescannt – kein Text" : `Fehler`)}
+                {job.status === "running" && (
+                  job.doc_type
+                    ? `${detectedLabel(job.doc_type)} – verarbeitet…`
+                    : "erkennt Typ…"
+                )}
+                {job.status === "done" && `✓ ${job.n_chunks} Chunks${detectedLabel(job.doc_type) ? ` · ${detectedLabel(job.doc_type)}` : ""}`}
+                {job.status === "error" && (job.is_scanned ? "Gescannt – kein Text" : "Fehler")}
               </span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Doc type selection modal */}
+      {/* Department selection modal */}
       {modalOpen && pendingFile && (
-        <div className="upload-modal-overlay" onClick={() => { setModalOpen(false); setPendingFile(null); }}>
-          <div className="upload-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="upload-modal-title">Dokumenttyp auswählen</h3>
-            <p className="upload-modal-file">{pendingFile.name}</p>
-
-            {allDocTypes.length === 0 ? (
-              <p className="upload-modal-note">
-                Keine Dokumenttypen definiert. Bitte Admin kontaktieren.
+        <div className="dept-modal-overlay" onClick={cancelUpload}>
+          <div className="dept-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="dept-modal-header">
+              <div className="dept-modal-title">Department auswählen</div>
+              <div className="dept-modal-subtitle" title={pendingFile.name}>
+                {pendingFile.name}
+              </div>
+            </div>
+            <div className="dept-modal-body">
+              <p className="dept-modal-hint">
+                Wählen Sie ein oder mehrere Departments, denen dieses Dokument zugeordnet werden soll.
               </p>
-            ) : (
-              <div className="upload-modal-types">
-                {allDocTypes.map((dt) => (
-                  <label key={dt.id} className={`upload-modal-type-item ${selectedDocType === dt.id ? "selected" : ""}`}>
+              <div className="dept-modal-list">
+                {departments.map((d) => (
+                  <label key={d.id} className="dept-modal-option">
                     <input
-                      type="radio"
-                      name="doc-type"
-                      value={dt.id}
-                      checked={selectedDocType === dt.id}
-                      onChange={() => setSelectedDocType(dt.id)}
+                      type="checkbox"
+                      checked={selectedDeptIds.includes(d.id)}
+                      onChange={() => toggleDept(d.id)}
                     />
-                    <span className="upload-modal-type-code">#{dt.code}</span>
-                    <span className="upload-modal-type-name">{dt.name}</span>
-                    {dt.description && (
-                      <span className="upload-modal-type-desc">{dt.description}</span>
-                    )}
+                    <span className="dept-modal-code">#{d.code}</span>
+                    <span className="dept-modal-name">{d.name}</span>
                   </label>
                 ))}
               </div>
-            )}
-
-            <div className="upload-modal-actions">
-              <button
-                className="upload-modal-confirm"
-                onClick={confirmUpload}
-                disabled={!selectedDocType || allDocTypes.length === 0}
-              >
-                Hochladen
-              </button>
-              <button
-                className="upload-modal-cancel"
-                onClick={() => { setModalOpen(false); setPendingFile(null); }}
-              >
+            </div>
+            <div className="dept-modal-footer">
+              <button className="dept-modal-cancel" onClick={cancelUpload}>
                 Abbrechen
+              </button>
+              <button className="dept-modal-confirm" onClick={confirmUpload}>
+                Hochladen
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Detection toasts */}
+      {toasts.length > 0 && (
+        <div className="doctype-toast-stack">
+          {toasts.map((t) => (
+            <div key={t.id} className={`doctype-toast${t.isError ? " toast-error" : ""}`}>
+              <span className="doctype-toast-icon">{t.isError ? "⚠️" : "✅"}</span>
+              <div className="doctype-toast-body">
+                <div className="doctype-toast-label">
+                  {t.isError
+                    ? "Fehler beim Hochladen"
+                    : t.nChunks !== null
+                      ? "Dokument indexiert"
+                      : "Dokumenttyp erkannt"}
+                </div>
+                <div className="doctype-toast-type">
+                  {t.isError
+                    ? (t.isScanned ? "Gescanntes Dokument – kein Textlayer" : (t.errorMsg ?? "Unbekannter Fehler"))
+                    : (t.detectedType ?? "Unbekannter Typ")}
+                </div>
+                <div className="doctype-toast-file" title={t.filename}>{t.filename}</div>
+                {!t.isError && t.nChunks !== null && (
+                  <div className="doctype-toast-chunks">{t.nChunks} Chunks indexiert</div>
+                )}
+              </div>
+              <button className="doctype-toast-close" onClick={() => dismissToast(t.id)}>×</button>
+            </div>
+          ))}
         </div>
       )}
     </div>

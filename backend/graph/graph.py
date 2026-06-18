@@ -11,6 +11,12 @@ from backend.config import MAX_ATTEMPTS, CONFIDENCE_THRESHOLD
 
 
 def _route_confidence(state: RAGState) -> str:
+    """Router: direct the graph to answer, escalate, or abstain.
+
+    - answer   : top-1 confidence meets the threshold — proceed to answer node.
+    - escalate : below threshold but attempts remain — widen pool and retry retrieval.
+    - abstain  : attempts exhausted — emit a "cannot ground" response.
+    """
     conf = state.get("confidence", 0.0)
     attempts = state.get("attempts", 0)
     if conf >= CONFIDENCE_THRESHOLD:
@@ -21,6 +27,14 @@ def _route_confidence(state: RAGState) -> str:
 
 
 def build_graph():
+    """Assemble and compile the LangGraph RAG pipeline.
+
+    Topology:
+        prepare_query → retrieve → rerank → score_confidence
+            → answer    (confidence OK)
+            → escalate  → retrieve  (loop, bounded by MAX_ATTEMPTS)
+            → abstain   (attempts exhausted)
+    """
     g = StateGraph(RAGState)
 
     g.add_node("prepare_query", prepare_query)

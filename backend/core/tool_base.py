@@ -39,6 +39,7 @@ class Tool(ABC):
     metadata: ToolMetadata = None   # subclasses must override
 
     def __init__(self):
+        """Validate metadata exists and all declared dependencies are importable."""
         if not self.metadata:
             raise ValueError(f"{self.__class__.__name__} must define a class-level 'metadata' attribute")
         self._validate_dependencies()
@@ -78,7 +79,9 @@ class Tool(ABC):
         return True, None
 
     def get_metadata(self) -> ToolMetadata:
+        """Return this tool's ToolMetadata (name, version, capabilities, …)."""
         return self.metadata
 
     def __repr__(self) -> str:
+        """Return a brief 'name vX.Y.Z' string for logging and debugging."""
         return f"{self.metadata.name} v{self.metadata.version}"

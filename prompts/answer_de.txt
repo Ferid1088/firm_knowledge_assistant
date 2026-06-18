@@ -18,4 +18,5 @@ Erfinde niemals Informationen. Zitiere WÖRTLICH — keine Paraphrasen. Zitate k
 {history}Quellen:
 {sources}
 
+ERINNERUNG: Antworte ausschließlich auf Deutsch.
 Frage: {question}

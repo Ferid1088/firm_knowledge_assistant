@@ -67,7 +67,7 @@ function Citations({
                     </span>
                   ))}
                 </span>
-                {c.address.page != null && <span className="citation-page">p. {c.address.page + 1}</span>}
+                {c.address.page != null && <span className="citation-page">p. {c.address.page}</span>}
               </span>
               <span className="citation-quote">
                 <QuoteIcon />

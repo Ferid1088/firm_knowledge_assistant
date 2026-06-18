@@ -5,6 +5,7 @@ from backend.graph.state import RAGState
 
 
 def escalate(state: RAGState) -> RAGState:
+    """Increment attempts and clear the pool so retrieve runs again on the next loop."""
     attempts = state.get("attempts", 0) + 1
     # Simple escalation: widen pool size will happen automatically on next retrieve
     # (the retrieve node always uses RETRIEVE_DEEP_POOL; on escalation we could

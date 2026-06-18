@@ -18,6 +18,7 @@ _SESSION_MAX_AGE = 8 * 3600  # 8 hours
 
 
 def _user_response(user: iam.User) -> dict:
+    """Serialize a User object into the public API response shape (no password hash)."""
     return {
         "id": user.id,
         "username": user.username,
@@ -47,6 +48,8 @@ def auth_status(request: Request):
 
 
 class SetupRequest(BaseModel):
+    """Request body for POST /api/auth/setup (first-run wizard)."""
+
     username: str
     password: str
 
@@ -86,12 +89,19 @@ def setup(req: SetupRequest, request: Request, response: Response):
 
 
 class LoginRequest(BaseModel):
+    """Request body for POST /api/auth/login."""
+
     username: str
     password: str
 
 
 @router.post("/api/auth/login")
 def login(req: LoginRequest, request: Request, response: Response):
+    """Authenticate a user and issue a session cookie.
+
+    Rate-limited per IP. Always runs a full password-hash comparison even when
+    the username does not exist to prevent timing-based user enumeration.
+    """
     ip = request.client.host if request.client else "unknown"
 
     # Rate limit check BEFORE any credential lookup
@@ -148,6 +158,7 @@ def login(req: LoginRequest, request: Request, response: Response):
 
 @router.post("/api/auth/logout")
 def logout(request: Request, response: Response):
+    """Invalidate the session server-side and clear the cookie. Safe to call without a session."""
     session_id = request.cookies.get(_SESSION_COOKIE, "")
     session = resolve_session(session_id)
     if session:
@@ -166,6 +177,7 @@ def logout(request: Request, response: Response):
 
 @router.get("/api/auth/me")
 def me(request: Request):
+    """Return the current user's profile, or 401 if not authenticated."""
     session_id = request.cookies.get(_SESSION_COOKIE, "")
     session = resolve_session(session_id)
     if not session:
@@ -177,12 +189,19 @@ def me(request: Request):
 
 
 class ChangePasswordRequest(BaseModel):
+    """Request body for POST /api/auth/change-password."""
+
     current_password: str
     new_password: str
 
 
 @router.post("/api/auth/change-password")
 def change_password(req: ChangePasswordRequest, request: Request):
+    """Allow a logged-in user to change their own password.
+
+    Requires the current password to be correct; clears must_change_password
+    flag on success and invalidates all other active sessions.
+    """
     session_id = request.cookies.get(_SESSION_COOKIE, "")
     session = resolve_session(session_id)
     if not session:

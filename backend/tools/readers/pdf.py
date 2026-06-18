@@ -35,6 +35,7 @@ class PDFReaderTool(FileReaderTool):
     format_name = "pdf"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Extract text and table structure from a PDF file via pdfplumber."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

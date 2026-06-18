@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 class EMLReaderTool(FileReaderTool):
+    """Parse .eml files into structured header + body text for downstream chunking."""
+
     metadata = ToolMetadata(
         name="reader:eml",
         version="1.0.0",
@@ -33,6 +35,7 @@ class EMLReaderTool(FileReaderTool):
     format_name = "eml"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Parse the .eml file; extract plain-text body parts and attachment count."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

@@ -13,10 +13,12 @@ from backend.config import SESSION_TTL_SECONDS
 
 
 def _now() -> datetime:
+    """Return current UTC datetime."""
     return datetime.now(timezone.utc)
 
 
 def create_agent_session(user_id: str, conversation_id: str) -> dict:
+    """Create a new agent session row with SESSION_TTL_SECONDS expiry; return the session dict."""
     session_id = uuid.uuid4().hex
     now = _now()
     expires_at = now + timedelta(seconds=SESSION_TTL_SECONDS)
@@ -62,6 +64,7 @@ def validate_session(session_id: str) -> dict | None:
 
 
 def cleanup_expired_sessions() -> int:
+    """Delete all expired agent_sessions rows; returns the number of rows removed."""
     conn = get_connection()
     try:
         cur = conn.execute(

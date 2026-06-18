@@ -9,6 +9,7 @@ from backend.services.iam import _permissions_for_role, get_user
 
 
 def _now() -> str:
+    """Return current UTC time as ISO-8601 string for DB timestamps."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -16,6 +17,7 @@ def _now() -> str:
 
 def list_users_admin(dept_id: str | None = None, role_id: str | None = None,
                      active_only: bool | None = None, page: int = 1, per_page: int = 50) -> dict:
+    """Return a paginated list of users filtered by department, role, or active status."""
     clauses = []
     params: list = []
     if dept_id:
@@ -50,6 +52,7 @@ def list_users_admin(dept_id: str | None = None, role_id: str | None = None,
 
 
 def get_user_admin(user_id: str) -> dict:
+    """Fetch a single user by ID, omitting sensitive columns; raises ValueError if not found."""
     conn = get_connection()
     try:
         row = conn.execute(
@@ -67,6 +70,7 @@ def get_user_admin(user_id: str) -> dict:
 
 def create_user_admin(username: str, password: str, name: str,
                       department_id: str, role_id: str) -> dict:
+    """Create a new user with a bcrypt-hashed password and must_change_password=True."""
     from backend.services.auth import hash_password
     if len(password) < 8:
         raise ValueError("Password must be at least 8 characters")
@@ -88,6 +92,7 @@ def create_user_admin(username: str, password: str, name: str,
 
 
 def update_user_admin(user_id: str, **fields) -> dict:
+    """Apply a partial update to a user row; only allowed fields are touched."""
     allowed = {"name", "department_id", "role_id", "is_active"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
@@ -107,6 +112,7 @@ def update_user_admin(user_id: str, **fields) -> dict:
 
 
 def reset_password_admin(user_id: str, new_password: str) -> None:
+    """Set a new password for a user and invalidate all their existing sessions."""
     from backend.services.auth import hash_password, delete_all_sessions_for_user
     if len(new_password) < 8:
         raise ValueError("Password must be at least 8 characters")
@@ -124,6 +130,14 @@ def reset_password_admin(user_id: str, new_password: str) -> None:
 
 
 def deactivate_user_admin(user_id: str) -> dict:
+    """Soft-disable a user account and invalidate all their sessions. Raises ValueError for superadmins."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT role_id FROM users WHERE id = ?", (user_id,)).fetchone()
+    finally:
+        conn.close()
+    if row and row["role_id"] == "superadmin":
+        raise ValueError("Cannot deactivate a Super Admin account.")
     from backend.services.auth import delete_all_sessions_for_user
     delete_all_sessions_for_user(user_id)
     return update_user_admin(user_id, is_active=0)
@@ -132,6 +146,7 @@ def deactivate_user_admin(user_id: str) -> dict:
 # ── Departments ───────────────────────────────────────────────────────────────
 
 def list_departments_admin() -> list[dict]:
+    """Return all departments ordered by name."""
     conn = get_connection()
     try:
         rows = conn.execute("SELECT * FROM departments ORDER BY name").fetchall()
@@ -141,6 +156,7 @@ def list_departments_admin() -> list[dict]:
 
 
 def create_department_admin(name: str, code: str) -> dict:
+    """Create a new department; ID is derived from the code, must be unique."""
     dept_id = "dept-" + code.lower().replace("_", "-")
     now = _now()
     conn = get_connection()
@@ -157,6 +173,7 @@ def create_department_admin(name: str, code: str) -> dict:
 
 
 def update_department_admin(dept_id: str, name: str | None = None, status: str | None = None) -> dict:
+    """Update department name or status; blocks archiving if active users remain."""
     if status == "archived":
         conn = get_connection()
         try:
@@ -191,6 +208,7 @@ def update_department_admin(dept_id: str, name: str | None = None, status: str |
 # ── Roles ─────────────────────────────────────────────────────────────────────
 
 def list_roles_admin() -> list[dict]:
+    """Return all roles with their resolved permission sets."""
     conn = get_connection()
     try:
         roles = conn.execute("SELECT * FROM roles ORDER BY name").fetchall()
@@ -205,6 +223,7 @@ def list_roles_admin() -> list[dict]:
 
 
 def create_role_admin(name: str, description: str = "") -> dict:
+    """Create a custom (non-system) role; assign permissions separately via set_role_permissions_admin."""
     role_id = "role-" + name.lower().replace(" ", "-")
     now = _now()
     conn = get_connection()
@@ -223,6 +242,7 @@ def create_role_admin(name: str, description: str = "") -> dict:
 
 
 def update_role_admin(role_id: str, name: str | None = None, description: str | None = None) -> dict:
+    """Update role name or description; raises ValueError if role not found."""
     updates: dict = {}
     if name is not None:
         updates["name"] = name
@@ -248,6 +268,7 @@ def update_role_admin(role_id: str, name: str | None = None, description: str | 
 
 
 def delete_role_admin(role_id: str) -> None:
+    """Delete a custom role; raises ValueError for system roles or roles still in use."""
     conn = get_connection()
     try:
         row = conn.execute("SELECT is_system FROM roles WHERE id = ?", (role_id,)).fetchone()
@@ -267,6 +288,7 @@ def delete_role_admin(role_id: str) -> None:
 
 
 def set_role_permissions_admin(role_id: str, permission_ids: list[str]) -> dict:
+    """Replace the full permission set for a role (DELETE+INSERT, idempotent)."""
     conn = get_connection()
     try:
         if conn.execute("SELECT 1 FROM roles WHERE id = ?", (role_id,)).fetchone() is None:
@@ -286,6 +308,7 @@ def set_role_permissions_admin(role_id: str, permission_ids: list[str]) -> dict:
 # ── Document types ────────────────────────────────────────────────────────────
 
 def list_doc_types_admin(active_only: bool = False) -> list[dict]:
+    """Return all document types; pass active_only=True to exclude archived entries."""
     conn = get_connection()
     try:
         where = "WHERE status = 'active'" if active_only else ""
@@ -322,6 +345,7 @@ def create_doc_type_admin(name: str, description: str = "") -> dict:
 
 def update_doc_type_admin(dt_id: str, name: str | None = None,
                           description: str | None = None, status: str | None = None) -> dict:
+    """Partial update of a document type; validates status value if provided."""
     updates: dict = {}
     if name is not None:
         updates["name"] = name
@@ -383,9 +407,45 @@ def set_user_doc_type_permissions(user_id: str, doc_type_ids: list[str]) -> dict
         conn.close()
 
 
+# ── User department permissions ────────────────────────────────────────────────
+
+def get_user_department_ids(user_id: str) -> list[str] | None:
+    """Return list of allowed department_ids for user, or None if unrestricted (all active departments)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT department_id FROM user_department_permissions WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        if not rows:
+            return None  # no restrictions → all active departments
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+def set_user_department_permissions(user_id: str, department_ids: list[str]) -> dict:
+    """Replace the user's department permissions (empty list = unrestricted)."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM user_department_permissions WHERE user_id = ?", (user_id,)
+        )
+        for dept_id in department_ids:
+            conn.execute(
+                "INSERT OR IGNORE INTO user_department_permissions (user_id, department_id) VALUES (?,?)",
+                (user_id, dept_id),
+            )
+        conn.commit()
+        return {"user_id": user_id, "allowed_department_ids": department_ids or None}
+    finally:
+        conn.close()
+
+
 # ── Permissions ───────────────────────────────────────────────────────────────
 
 def list_permissions_admin() -> list[dict]:
+    """Return all permission records sorted by resource then action."""
     conn = get_connection()
     try:
         return [
@@ -402,6 +462,7 @@ def list_permissions_admin() -> list[dict]:
 def list_audit_log(user_id: str | None = None, action: str | None = None,
                    resource_type: str | None = None, date_from: str | None = None,
                    date_to: str | None = None, page: int = 1, per_page: int = 50) -> dict:
+    """Return a paginated, filtered audit log with usernames joined in."""
     clauses = []
     params: list = []
     if user_id:
@@ -440,6 +501,7 @@ def list_audit_log(user_id: str | None = None, action: str | None = None,
 # ── System stats ──────────────────────────────────────────────────────────────
 
 def system_stats() -> dict:
+    """Gather basic system stats: user counts, DB size, Qdrant dir size."""
     from pathlib import Path
     from backend.config import QDRANT_DIR
 

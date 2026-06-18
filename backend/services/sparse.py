@@ -103,12 +103,18 @@ class BM25Index:
     """Wraps BM25Okapi and exposes sparse-vector conversion for Qdrant."""
 
     def __init__(self, lang: str = "de"):
+        """Initialize an empty index for the given language; call add_documents() before querying."""
         self.lang = lang
         self._vocab: dict[str, int] = {}
         self._corpus_tokens: list[list[str]] = []
         self._bm25: BM25Okapi | None = None
 
     def add_documents(self, texts: list[str]):
+        """Tokenize texts, build vocabulary, and fit BM25Okapi on the corpus.
+
+        Must be called before ``sparse_vector`` / ``query_sparse_vector``.
+        Not incremental — rebuilding requires a new BM25Index instance.
+        """
         for t in texts:
             toks = tokenize(t, self.lang)
             self._corpus_tokens.append(toks)
@@ -141,4 +147,5 @@ class BM25Index:
         return self.sparse_vector(query)
 
     def vocab_size(self) -> int:
+        """Return the number of unique tokens in the vocabulary."""
         return len(self._vocab)

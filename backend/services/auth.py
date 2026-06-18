@@ -68,6 +68,7 @@ def _constant_time_dummy(password: str) -> None:
 
 
 def _now() -> str:
+    """Return current UTC time as ISO-8601 string for DB timestamps."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -97,6 +98,7 @@ def check_login_rate_limit(ip: str) -> None:
 
 
 def increment_login_attempts(ip: str) -> None:
+    """Record one failed login attempt for the IP within the current 15-minute window."""
     key = f"login_ip_{ip}"
     window = _window_start_login()
     conn = get_connection()
@@ -112,6 +114,7 @@ def increment_login_attempts(ip: str) -> None:
 
 
 def reset_login_attempts(ip: str) -> None:
+    """Clear all login attempt counters for the IP (called on successful login)."""
     key = f"login_ip_{ip}"
     conn = get_connection()
     try:
@@ -167,6 +170,7 @@ def resolve_session(session_id: str) -> dict | None:
 
 
 def delete_session(session_id: str) -> None:
+    """Remove a single session row (logout)."""
     conn = get_connection()
     try:
         conn.execute("DELETE FROM user_sessions WHERE session_id = ?", (session_id,))
@@ -176,6 +180,11 @@ def delete_session(session_id: str) -> None:
 
 
 def delete_all_sessions_for_user(user_id: str, except_session: str | None = None) -> None:
+    """Invalidate all sessions for a user (password change / admin revoke).
+
+    Pass ``except_session`` to keep the caller's current session alive while
+    invalidating all others (useful for "logout all other devices").
+    """
     conn = get_connection()
     try:
         if except_session:

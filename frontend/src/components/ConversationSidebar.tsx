@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import type { ConversationDetail, ConversationSummary, DocumentType, User } from "@/lib/types";
+import type { ConversationDetail, ConversationSummary, Department, User } from "@/lib/types";
 import { UploadPdf } from "@/components/UploadPdf";
-import { setActiveDocTypeFilter } from "@/lib/chatAdapter";
+
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
@@ -40,57 +40,54 @@ export function ConversationSidebar({
   const [sharePermission, setSharePermission] = useState<string>("view");
   const [shares, setShares] = useState<ConversationDetail["shares"]>([]);
 
-  // Doc type filter state
-  const [filterDocTypes, setFilterDocTypes] = useState<DocumentType[]>([]);
-  const [selectedFilterIds, setSelectedFilterIds] = useState<string[]>([]); // empty = All
+  // Department filter state
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDeptIds, setSelectedDeptIds] = useState<string[]>([]); // empty = All
   const [filterOpen, setFilterOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/doc-types", { credentials: "include" })
+    fetch("/api/departments/allowed", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : []))
-      .then((data: DocumentType[]) => {
-        if (Array.isArray(data)) setFilterDocTypes(data);
+      .then((data: Department[]) => {
+        if (!Array.isArray(data)) return;
+        setDepartments(data);
       })
       .catch(() => {});
-  }, []);
+  }, [currentUser]);
 
-  // Sync selectedFilterIds → chat adapter whenever it changes
-  useEffect(() => {
-    setActiveDocTypeFilter(selectedFilterIds);
-  }, [selectedFilterIds]);
+  const allChecked = selectedDeptIds.length === 0;
 
-  // Dropdown closed via backdrop click (see JSX below) — no document listener needed.
-
-  const allChecked = selectedFilterIds.length === 0;
-
-  function toggleFilterId(id: string) {
-    // When "all" is active (empty list), expand to all IDs first, then remove the toggled one
-    const current = selectedFilterIds.length === 0
-      ? filterDocTypes.map((d) => d.id)
-      : selectedFilterIds;
+  function toggleDeptId(id: string) {
+    const current = selectedDeptIds.length === 0
+      ? departments.map((d) => d.id)
+      : selectedDeptIds;
     const next = current.includes(id)
       ? current.filter((x) => x !== id)
       : [...current, id];
-    // If everything is checked, collapse back to empty (= "Alle")
-    setSelectedFilterIds(next.length === filterDocTypes.length ? [] : next);
+    setSelectedDeptIds(next.length === departments.length ? [] : next);
   }
 
   function toggleAll() {
-    setSelectedFilterIds([]);
+    setSelectedDeptIds([]);
   }
 
   function isChecked(id: string) {
-    return selectedFilterIds.length === 0 || selectedFilterIds.includes(id);
+    return selectedDeptIds.length === 0 || selectedDeptIds.includes(id);
   }
 
   function filterLabel() {
-    if (selectedFilterIds.length === 0) return "Alle";
-    if (selectedFilterIds.length === 1) {
-      const dt = filterDocTypes.find((d) => d.id === selectedFilterIds[0]);
-      return dt ? dt.name : "1 Typ";
+    if (selectedDeptIds.length === 0) return "Alle";
+    if (selectedDeptIds.length === 1) {
+      const d = departments.find((d) => d.id === selectedDeptIds[0]);
+      return d ? d.name : "1 Abt.";
     }
-    return `${selectedFilterIds.length} Typen`;
+    return `${selectedDeptIds.length} Abt.`;
   }
+
+  // Filter conversations by selected departments (client-side)
+  const visibleConversations = selectedDeptIds.length === 0
+    ? conversations
+    : conversations.filter((c) => selectedDeptIds.includes(c.department_id));
 
   useEffect(() => {
     if (!shareOpenFor) {
@@ -178,10 +175,10 @@ export function ConversationSidebar({
         <UploadPdf allowedDocTypeIds={currentUser?.allowed_doc_type_ids ?? null} />
       </div>
 
-      {/* Doc type filter */}
-      {filterDocTypes.length > 0 && (
+      {/* Department filter */}
+      {departments.length > 0 && (
         <div className="sidebar-section sidebar-filter-section">
-          <div className="sidebar-filter-label">Filter nach Typ</div>
+          <div className="sidebar-filter-label">Filter nach Department</div>
           <div className="sidebar-filter-dropdown">
             <button
               className={`sidebar-filter-trigger ${filterOpen ? "open" : ""}`}
@@ -194,28 +191,22 @@ export function ConversationSidebar({
 
             {filterOpen && (
               <>
-                {/* Backdrop — captures outside clicks to close without interfering with panel events */}
                 <div className="sidebar-filter-backdrop" onClick={() => setFilterOpen(false)} />
                 <div className="sidebar-filter-panel">
-                  {/* Alle */}
                   <label className="sidebar-filter-option">
-                    <input
-                      type="checkbox"
-                      checked={allChecked}
-                      onChange={toggleAll}
-                    />
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll} />
                     <span className="sidebar-filter-option-name">Alle</span>
                   </label>
                   <div className="sidebar-filter-divider" />
-                  {filterDocTypes.map((dt) => (
-                    <label key={dt.id} className="sidebar-filter-option">
+                  {departments.map((d) => (
+                    <label key={d.id} className="sidebar-filter-option">
                       <input
                         type="checkbox"
-                        checked={isChecked(dt.id)}
-                        onChange={() => toggleFilterId(dt.id)}
+                        checked={isChecked(d.id)}
+                        onChange={() => toggleDeptId(d.id)}
                       />
-                      <span className="sidebar-filter-code">#{dt.code}</span>
-                      <span className="sidebar-filter-option-name">{dt.name}</span>
+                      <span className="sidebar-filter-code">#{d.code}</span>
+                      <span className="sidebar-filter-option-name">{d.name}</span>
                     </label>
                   ))}
                 </div>
@@ -235,7 +226,7 @@ export function ConversationSidebar({
 
       {/* Conversation list */}
       <div className="conversation-list">
-        {conversations.map((c) => (
+        {visibleConversations.map((c) => (
           <div key={c.id} className={`conversation-item ${c.id === activeConversationId ? "active" : ""}`}>
             <div className="conversation-item-title" onClick={() => onSelectConversation(c.id)}>
               <MessageSquareIcon />
@@ -284,10 +275,10 @@ export function ConversationSidebar({
             )}
           </div>
         ))}
-        {conversations.length === 0 && (
+        {visibleConversations.length === 0 && (
           <div className="sidebar-empty">
             <MessageSquareIcon />
-            No conversations yet.
+            {selectedDeptIds.length > 0 ? "Keine Gespräche in diesem Department." : "No conversations yet."}
           </div>
         )}
       </div>

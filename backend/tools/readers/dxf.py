@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class DXFReaderTool(FileReaderTool):
+    """Extract TEXT and MTEXT entities from AutoCAD DXF files via ezdxf."""
+
     metadata = ToolMetadata(
         name="reader:dxf",
         version="1.0.0",
@@ -30,6 +32,7 @@ class DXFReaderTool(FileReaderTool):
     format_name = "dxf"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Parse the DXF modelspace and collect all TEXT/MTEXT entity strings."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

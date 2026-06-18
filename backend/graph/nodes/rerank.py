@@ -7,6 +7,7 @@ from backend.graph.utils import get_reranker
 
 
 def rerank(state: RAGState) -> RAGState:
+    """Score the candidate pool with Qwen3-Reranker and keep the top RETRIEVE_K hits."""
     pool = state.get("candidate_pool", [])
     if not pool:
         return {**state, "reranked": []}

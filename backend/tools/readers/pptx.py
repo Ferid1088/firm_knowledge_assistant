@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class PPTXReaderTool(FileReaderTool):
+    """Extract slide text and notes from PowerPoint PPTX files via python-pptx."""
+
     metadata = ToolMetadata(
         name="reader:pptx",
         version="1.0.0",
@@ -31,6 +33,7 @@ class PPTXReaderTool(FileReaderTool):
     format_name = "pptx"
 
     def _validate_dependencies(self) -> None:
+        """Verify python-pptx is installed (pip name 'python-pptx', imports as 'pptx')."""
         # pip: python-pptx, import: pptx
         import importlib
         try:
@@ -42,6 +45,7 @@ class PPTXReaderTool(FileReaderTool):
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Iterate all slides and extract title + body text, plus speaker notes."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

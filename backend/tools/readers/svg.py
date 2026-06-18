@@ -15,6 +15,8 @@ _SVG_NS = "http://www.w3.org/2000/svg"
 
 
 class SVGReaderTool(FileReaderTool):
+    """Extract text, title, and description elements from SVG files via stdlib xml.etree."""
+
     metadata = ToolMetadata(
         name="reader:svg",
         version="1.0.0",
@@ -33,6 +35,7 @@ class SVGReaderTool(FileReaderTool):
     format_name = "svg"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Parse the SVG XML tree and collect all text/tspan/title/desc element strings."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

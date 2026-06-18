@@ -29,6 +29,7 @@ _CLIENT_DIR: str | None = None
 
 
 def _client(persist_dir: str = QDRANT_DIR) -> QdrantClient:
+    """Return a cached QdrantClient, re-opening if persist_dir changed."""
     global _CLIENT, _CLIENT_DIR
     if _CLIENT is None or _CLIENT_DIR != persist_dir:
         if _CLIENT is not None:
@@ -39,6 +40,7 @@ def _client(persist_dir: str = QDRANT_DIR) -> QdrantClient:
 
 
 def get_collection(persist_dir: str = QDRANT_DIR, collection: str = QDRANT_COLLECTION):
+    """Return (client, collection_name), creating the collection if it does not exist."""
     client = _client(persist_dir)
     existing = [c.name for c in client.get_collections().collections]
     if collection not in existing:
@@ -53,13 +55,14 @@ def get_collection(persist_dir: str = QDRANT_DIR, collection: str = QDRANT_COLLE
 
 def _make_point(
     point_id: int,
-    chunk,             # StructuralChunk
+    chunk,             # StructuralChunk  # noqa: ANN001 — avoids circular import at module level
     dense_vec: list[float],
     sparse_vecs: dict[str, dict[int, float]],  # {sparse_field: {idx: val}}
     doc_id: str,
     version_id: str,
     sizes: dict,
 ) -> PointStruct:
+    """Build a Qdrant PointStruct from a chunk, its embeddings, and doc-level metadata."""
     from backend.services.citations import chunk_address
     address = chunk_address(chunk, doc_id, sizes)
 
@@ -72,6 +75,8 @@ def _make_point(
 
     # Detect chunk language for sparse field routing
     lang = chunk.metadata.get("lang", "de")
+    department_ids = chunk.metadata.get("department_ids", [])
+    tbl = chunk.metadata.get("table_structure", {})
 
     return PointStruct(
         id=point_id,
@@ -80,6 +85,11 @@ def _make_point(
             "doc_id": doc_id,
             "chunk_id": chunk.chunk_id,
             "chunk_type": chunk.chunk_type,
+            # Dual labels per adaptive parsing spec:
+            "semantic_type": chunk.metadata.get("doc_type", ""),      # what is the document
+            "structural_type": chunk.metadata.get("structural_type", chunk.chunk_type),  # what is this chunk
+            "doc_type": chunk.metadata.get("doc_type", ""),           # alias kept for search() filter compat
+            "doc_type_id": chunk.metadata.get("doc_type_id", ""),
             "is_leaf": chunk.is_leaf,
             "parent_id": chunk.parent_id or "",
             "heading_path": json.dumps(chunk.heading_path),
@@ -91,6 +101,12 @@ def _make_point(
             "version_id": version_id,
             "is_current": True,
             "chunk_index_in_parent": chunk.chunk_index_in_parent,
+            "department_ids": department_ids,
+            # Table-specific structural metadata (only populated for chunk_type="table")
+            "table_role": chunk.metadata.get("table_role", ""),
+            "table_n_rows": tbl.get("n_rows", 0),
+            "table_n_cols": tbl.get("n_cols", 0),
+            "table_headers": json.dumps(tbl.get("headers", [])),
         },
     )
 
@@ -122,12 +138,13 @@ def mark_old_version(client: QdrantClient, collection: str, doc_id: str, new_ver
 
 def index_chunks(
     collection_tuple,
-    chunks,              # list[StructuralChunk]
+    chunks,              # list[StructuralChunk]  # noqa: ANN001
     embedder,
     bm25_indices: dict,  # {lang_code: BM25Index}
     doc_id: str,
     sizes: dict,
 ) -> int:
+    """Embed and upsert all leaf chunks; mark the previous version as not-current."""
     from backend.adapters.embedder import embed_texts
     from backend.services.language import registry
 
@@ -184,13 +201,14 @@ def _rrf_fuse(result_lists: list[list[tuple[int, float]]], k: int = 60) -> list[
 def search(
     collection_tuple,
     embedder,
-    query: str,
+    query: str,  # noqa: ANN001
     bm25_indices: dict,          # {lang_code: BM25Index}
     active_lang_codes: list[str],
     k: int = RETRIEVE_DEEP_POOL,
     current_only: bool = True,
     allowed_doc_type_ids: list[str] | None = None,  # None = all types allowed
 ) -> list[dict]:
+    """Dense + sparse BM25 hybrid search with RRF fusion; returns payload dicts."""
     from backend.adapters.embedder import embed_query
     from backend.services.language import registry
 

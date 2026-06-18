@@ -20,6 +20,8 @@ _MIME = {
 
 
 class ImageReaderTool(FileReaderTool):
+    """Read raster images (PNG/JPG/TIFF); return raw bytes for downstream OCR."""
+
     metadata = ToolMetadata(
         name="reader:image",
         version="1.0.0",
@@ -39,6 +41,7 @@ class ImageReaderTool(FileReaderTool):
     format_name = "image"
 
     def _validate_dependencies(self) -> None:
+        """Verify Pillow is installed; it ships as 'Pillow' but imports as 'PIL'."""
         # Pillow's pip package is 'Pillow' but it imports as 'PIL'
         import importlib
         try:
@@ -50,6 +53,7 @@ class ImageReaderTool(FileReaderTool):
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Validate and read the image file; return raw bytes + confidence=0.5 (OCR needed)."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

@@ -75,6 +75,7 @@ class FileReaderTool(Tool):
     format_name: str = ""
 
     def __init__(self, max_file_size: int = 100 * 1024 * 1024):
+        """Set the per-instance max_file_size limit used by validate_input()."""
         super().__init__()
         self.max_file_size = max_file_size
 
@@ -93,6 +94,7 @@ class FileReaderTool(Tool):
         return True, None
 
     async def execute(self, input_data, **kwargs) -> RawContent:
+        """Subclasses must override this to parse the file and return a RawContent."""
         raise NotImplementedError(f"{self.__class__.__name__} must implement execute()")
 
     def _handle_error(self, error: Exception, context: str = "") -> RawContent:

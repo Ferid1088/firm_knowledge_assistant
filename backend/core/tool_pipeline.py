@@ -13,6 +13,7 @@ class ToolPipeline:
     """Execute a fixed sequence of tools, passing output of each as input to the next."""
 
     def __init__(self, tool_names: List[str]):
+        """Resolve each tool name from the registry; raise ValueError for unknown names."""
         self.tool_names = tool_names
         registry = get_registry()
         self.tools = []
@@ -23,6 +24,7 @@ class ToolPipeline:
             self.tools.append(tool)
 
     async def execute(self, input_data: Any, **kwargs) -> Any:
+        """Run each tool in sequence, passing its output as the next tool's input."""
         current = input_data
         for i, tool in enumerate(self.tools):
             name = self.tool_names[i]
@@ -41,11 +43,14 @@ class PipelineBuilder:
     """Fluent builder for ToolPipeline."""
 
     def __init__(self):
+        """Initialize the builder with an empty tool-name list."""
         self._tools: List[str] = []
 
     def add(self, tool_name: str) -> "PipelineBuilder":
+        """Append a tool name to the pipeline sequence."""
         self._tools.append(tool_name)
         return self
 
     def build(self) -> ToolPipeline:
+        """Resolve all tool names from the registry and return the configured pipeline."""
         return ToolPipeline(self._tools)

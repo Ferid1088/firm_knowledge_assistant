@@ -14,10 +14,12 @@ from backend.services.iam import User, get_user
 
 
 def _now() -> str:
+    """Return current UTC time as ISO string."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def share_conversation(conversation_id: str, owner: User, target_user_id: str, permission: str) -> dict:
+    """Grant target_user_id access to conversation_id with the given permission level."""
     if permission not in ("view", "comment", "edit"):
         raise ValueError("permission must be one of: view, comment, edit")
 
@@ -49,6 +51,7 @@ def share_conversation(conversation_id: str, owner: User, target_user_id: str, p
 
 
 def revoke_share(conversation_id: str, owner: User, target_user_id: str) -> None:
+    """Remove a conversation share; owner-only."""
     conn = get_connection()
     try:
         conv = get_conversation_row(conversation_id, conn=conn)
@@ -69,6 +72,7 @@ def revoke_share(conversation_id: str, owner: User, target_user_id: str) -> None
 
 
 def list_shares(conversation_id: str) -> list[dict]:
+    """Return all active share rows for a conversation."""
     conn = get_connection()
     try:
         rows = conn.execute(

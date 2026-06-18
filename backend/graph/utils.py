@@ -17,6 +17,7 @@ _bm25_indices: dict = {}
 
 
 def get_embedder():
+    """Lazy-load and cache the Qwen3 embedder singleton."""
     global _embedder
     if _embedder is None:
         from backend.adapters.embedder import load_embedder
@@ -25,6 +26,7 @@ def get_embedder():
 
 
 def get_reranker():
+    """Lazy-load and cache the Qwen3-Reranker singleton."""
     global _reranker
     if _reranker is None:
         from backend.adapters.reranker import Qwen3Reranker
@@ -33,6 +35,7 @@ def get_reranker():
 
 
 def get_collection():
+    """Lazy-load and cache the (QdrantClient, collection_name) tuple."""
     global _collection_tuple
     if _collection_tuple is None:
         from backend.services.store import get_collection as _get_collection
@@ -41,6 +44,7 @@ def get_collection():
 
 
 def get_bm25_indices() -> dict:
+    """Return the process-wide BM25 index map {lang_code: BM25Index}."""
     return _bm25_indices
 
 
@@ -53,6 +57,7 @@ def set_bm25_indices(indices: dict):
 # ── Prompt loader ──────────────────────────────────────────────────────────
 
 def load_prompt(purpose: str, lang: str) -> str:
+    """Load a prompt template by (purpose, lang), falling back to German if missing."""
     ld = registry.get(lang)
     p = Path("prompts") / f"{purpose}_{ld.prompt_key}.txt"
     if p.exists():
@@ -65,12 +70,29 @@ def load_prompt(purpose: str, lang: str) -> str:
 # ── Language detection + query translation ─────────────────────────────────
 
 def detect_lang(text: str) -> str:
+    """Detect language code of text; returns German default for unknowns or errors.
+
+    Uses detect_langs() (with probabilities) instead of detect() so that
+    short text with low confidence stays as German rather than misfiring.
+    A non-German language is accepted only if its probability exceeds 0.80;
+    otherwise we fall back to the German default (house language).
+    """
     try:
-        from langdetect import detect, DetectorFactory
+        from langdetect import detect_langs, DetectorFactory
         DetectorFactory.seed = 0  # deterministic results
-        lang = detect(text)
         known = {ld.code for ld in registry.all()}
-        return lang if lang in known else DEFAULT_ANSWER_LANG
+        results = detect_langs(text)  # e.g. [de:0.857, en:0.142]
+        # Best candidate
+        best = results[0]
+        lang = best.lang
+        prob = best.prob
+        if lang not in known:
+            return DEFAULT_ANSWER_LANG
+        # For any non-default language (i.e. not German) require high confidence
+        # to avoid misfiring on short German text with English-looking words.
+        if lang != DEFAULT_ANSWER_LANG and prob < 0.80:
+            return DEFAULT_ANSWER_LANG
+        return lang
     except Exception:
         return DEFAULT_ANSWER_LANG
 
@@ -114,6 +136,7 @@ def translate_query(query: str, target_lang: str, source_lang: str) -> str:
 
 
 def is_multi_part(question: str) -> bool:
+    """Heuristic check for multi-part questions via keyword indicators or multiple '?'."""
     indicators = [" und ", " and ", " sowie ", " compare ", " vergleich", " both "]
     q_lower = question.lower()
     return any(ind in q_lower for ind in indicators) or question.count("?") > 1
@@ -153,6 +176,7 @@ def decompose_question(question: str, lang: str) -> list[str]:
 # ── Claim verification (shared by answer node) ──────────────────────────────
 
 def verify_claims(claims: list[dict], hits: list[dict]) -> list[dict]:
+    """Check each claim's quote against its cited source chunk (whitespace-normalised)."""
     for c in claims:
         idx = c.get("source", 1) - 1
         if 0 <= idx < len(hits):

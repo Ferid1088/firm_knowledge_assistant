@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 class CSVReaderTool(FileReaderTool):
+    """Read CSV files; auto-detect UTF-8 vs latin-1 encoding."""
+
     metadata = ToolMetadata(
         name="reader:csv",
         version="1.0.0",
@@ -33,6 +35,7 @@ class CSVReaderTool(FileReaderTool):
     format_name = "csv"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Parse the CSV file and return both structured table data and a pipe-separated text repr."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

@@ -85,6 +85,13 @@ function UsersTab() {
   const [editAllowedDtIds, setEditAllowedDtIds] = useState<string[]>([]);
   const [editDtLoaded, setEditDtLoaded] = useState(false);
 
+  // create form allowed departments
+  const [createAllowedDeptIds, setCreateAllowedDeptIds] = useState<string[]>([]);
+
+  // edit row allowed departments
+  const [editAllowedDeptIds, setEditAllowedDeptIds] = useState<string[]>([]);
+  const [editDeptLoaded, setEditDeptLoaded] = useState(false);
+
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<NewUserForm>(EMPTY_USER);
   const [creating, setCreating] = useState(false);
@@ -127,6 +134,7 @@ function UsersTab() {
     setEditForm({ name: u.name, department_id: u.department_id, role_id: u.role_id, is_active: u.is_active });
     setEditError("");
     setEditDtLoaded(false);
+    setEditDeptLoaded(false);
     const res = await apiFetch(`/api/admin/users/${u.id}/doc-type-permissions`).catch(() => null);
     if (res && res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -136,9 +144,18 @@ function UsersTab() {
       setEditAllowedDtIds(allDocTypes.map((dt) => dt.id));
     }
     setEditDtLoaded(true);
+    const deptRes = await apiFetch(`/api/admin/users/${u.id}/department-permissions`).catch(() => null);
+    if (deptRes && deptRes.ok) {
+      const data = await deptRes.json().catch(() => ({}));
+      const ids: string[] | null = (data as { allowed_department_ids?: string[] | null }).allowed_department_ids ?? null;
+      setEditAllowedDeptIds(ids ?? depts.map((d) => d.id));
+    } else {
+      setEditAllowedDeptIds(depts.map((d) => d.id));
+    }
+    setEditDeptLoaded(true);
   }
 
-  function cancelEdit() { setEditingId(null); setEditError(""); setEditDtLoaded(false); }
+  function cancelEdit() { setEditingId(null); setEditError(""); setEditDtLoaded(false); setEditDeptLoaded(false); }
 
   async function saveEdit(id: string) {
     setSaving(true); setEditError("");
@@ -158,8 +175,15 @@ function UsersTab() {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ doc_type_ids: isAll ? [] : editAllowedDtIds }),
       }).catch(() => {});
+      // Save allowed departments (empty list = all access)
+      const isAllDepts = editAllowedDeptIds.length === depts.length;
+      await apiFetch(`/api/admin/users/${id}/department-permissions`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ department_ids: isAllDepts ? [] : editAllowedDeptIds }),
+      }).catch(() => {});
       setEditingId(null);
       setEditDtLoaded(false);
+      setEditDeptLoaded(false);
       loadUsers();
     } finally { setSaving(false); }
   }
@@ -183,8 +207,16 @@ function UsersTab() {
             body: JSON.stringify({ doc_type_ids: isAll ? [] : createAllowedDtIds }),
           }).catch(() => {});
         }
+        if (created.id && depts.length > 0) {
+          const isAllDepts = createAllowedDeptIds.length === depts.length;
+          await apiFetch(`/api/admin/users/${created.id}/department-permissions`, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ department_ids: isAllDepts ? [] : createAllowedDeptIds }),
+          }).catch(() => {});
+        }
         setForm({ ...EMPTY_USER, department_id: depts[0]?.id ?? "", role_id: roles.find((r) => !r.is_system)?.id ?? "" });
         setCreateAllowedDtIds([]);
+        setCreateAllowedDeptIds([]);
         setShowCreate(false); loadUsers();
       } else {
         const d = await res.json().catch(() => ({}));
@@ -195,8 +227,35 @@ function UsersTab() {
 
   async function deactivate(id: string) {
     if (!confirm("Deactivate this user?")) return;
-    await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
-    loadUsers();
+    const res = await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      alert((d as { detail?: string }).detail ?? "Failed to deactivate user.");
+      return;
+    }
+    await reloadUsers();
+  }
+
+  async function activate(id: string) {
+    if (!confirm("Re-activate this user?")) return;
+    const res = await apiFetch(`/api/admin/users/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: 1 }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      alert((d as { detail?: string }).detail ?? "Failed to activate user.");
+      return;
+    }
+    await reloadUsers();
+  }
+
+  async function reloadUsers() {
+    const r = await apiFetch("/api/admin/users").catch(() => null);
+    if (!r) return;
+    const d = await r.json().catch(() => ({}));
+    setUsers(Array.isArray(d.items) ? d.items : []);
+    setTotal(d.total ?? 0);
   }
 
   function toggleDt(id: string, selected: string[], setSelected: (v: string[]) => void) {
@@ -283,6 +342,26 @@ function UsersTab() {
               </div>
             </div>
           )}
+          {depts.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Allowed Departments
+              </div>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                Check the departments this user may filter by. Leave all unchecked for unrestricted access.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {depts.map((d) => (
+                  <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer" }}>
+                    <input type="checkbox" checked={createAllowedDeptIds.includes(d.id)}
+                      onChange={() => toggleDt(d.id, createAllowedDeptIds, setCreateAllowedDeptIds)} />
+                    <span className="admin-mono" style={{ color: "#94a3b8", fontSize: 12 }}>#{d.code}</span>
+                    <strong>{d.name}</strong>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           {createError && <div className="admin-create-error">{createError}</div>}
           <div className="admin-create-hint">The user will be asked to change their password on first login.</div>
           <div className="admin-actions" style={{ marginTop: 12 }}>
@@ -360,6 +439,32 @@ function UsersTab() {
                     </td>
                   </tr>
                 )}
+                {depts.length > 0 && (
+                  <tr key={`${u.id}-dept`} className="admin-row-editing">
+                    <td colSpan={6} style={{ paddingTop: 0, paddingBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Allowed Departments
+                      </div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+                        Check the departments this user may filter by. Leave all unchecked for unrestricted access.
+                      </div>
+                      {!editDeptLoaded ? (
+                        <span style={{ fontSize: 13, color: "#94a3b8" }}>Loading…</span>
+                      ) : (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 20px" }}>
+                          {depts.map((d) => (
+                            <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, cursor: "pointer", minWidth: 180 }}>
+                              <input type="checkbox" checked={editAllowedDeptIds.includes(d.id)}
+                                onChange={() => toggleDt(d.id, editAllowedDeptIds, setEditAllowedDeptIds)} />
+                              <span className="admin-mono" style={{ color: "#94a3b8", fontSize: 12 }}>#{d.code}</span>
+                              <strong>{d.name}</strong>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
                 </React.Fragment>
               ) : (
                 <tr key={u.id} className={u.is_active ? "" : "admin-row-inactive"}>
@@ -382,8 +487,11 @@ function UsersTab() {
                   <td className="admin-actions">
                     <button className="admin-btn" onClick={() => startEdit(u)}>Edit</button>
                     <button className="admin-btn" onClick={() => resetPw(u.id)}>Reset pw</button>
-                    {u.is_active === 1 && (
+                    {u.is_active === 1 && u.role_id !== "superadmin" && (
                       <button className="admin-btn danger" onClick={() => deactivate(u.id)}>Deactivate</button>
+                    )}
+                    {u.is_active === 0 && (
+                      <button className="admin-btn admin-btn-primary" onClick={() => activate(u.id)}>Activate</button>
                     )}
                   </td>
                 </tr>

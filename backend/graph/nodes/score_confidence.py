@@ -5,6 +5,7 @@ from backend.graph.state import RAGState
 
 
 def score_confidence(state: RAGState) -> RAGState:
+    """Compute top-1 reranker score and gap-to-tail for the router's confidence gate."""
     reranked = state.get("reranked", [])
     if not reranked:
         return {**state, "confidence": 0.0, "confidence_gap": 0.0}

@@ -26,6 +26,8 @@ _FMT = {
 
 
 class TextReaderTool(FileReaderTool):
+    """Read plain text, Markdown, and HTML files; auto-detect UTF-8 vs latin-1."""
+
     metadata = ToolMetadata(
         name="reader:txt",
         version="1.0.0",
@@ -44,6 +46,7 @@ class TextReaderTool(FileReaderTool):
     format_name = "txt"   # fallback only; execute() uses the actual extension
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Read the text file and return its content with the correct MIME type for its extension."""
         file_path = str(input_data)
         p = Path(file_path)
         # Resolve actual format before any error path so _handle_error returns

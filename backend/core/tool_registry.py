@@ -27,11 +27,13 @@ class ToolRegistry:
     """Manage tool discovery, registration, and execution."""
 
     def __init__(self):
+        """Initialize with empty tool, metadata, and search-path containers."""
         self.tools: Dict[str, Tool] = {}
         self.metadata: Dict[str, ToolMetadata] = {}
         self.tool_paths: List[Path] = []
 
     def add_search_path(self, path: str) -> None:
+        """Add a filesystem path to the list of directories scanned by discover_tools()."""
         p = Path(path)
         if p.exists():
             self.tool_paths.append(p)
@@ -126,6 +128,7 @@ class ToolRegistry:
                     logger.debug(f"Could not import {module_name}: {e}")
 
     def get_tool(self, tool_name: str) -> Optional[Tool]:
+        """Return the registered tool instance by name, or None if not found."""
         tool = self.tools.get(tool_name)
         if not tool:
             logger.warning(f"Tool not found: {tool_name}")
@@ -137,6 +140,7 @@ class ToolRegistry:
         pattern: str = None,
         include_experimental: bool = False,
     ) -> List[Dict]:
+        """Return metadata dicts for all matching tools (filter by type or glob pattern)."""
         result = []
         for name, meta in self.metadata.items():
             if meta.is_experimental and not include_experimental:
@@ -157,9 +161,11 @@ class ToolRegistry:
         return result
 
     def has_tool(self, tool_name: str) -> bool:
+        """Return True if the tool is currently registered."""
         return tool_name in self.tools
 
     def export_metadata(self, output_file: str = "tools_manifest.json") -> None:
+        """Write a JSON manifest of all registered tools to output_file."""
         manifest = {
             "generated_at": datetime.now().isoformat(),
             "tools": [
@@ -180,6 +186,7 @@ class ToolRegistry:
         logger.info(f"Tool manifest exported to: {output_file}")
 
     def __repr__(self) -> str:
+        """Return a brief summary string for logging, e.g. 'ToolRegistry(12 tools)'."""
         return f"ToolRegistry({len(self.tools)} tools)"
 
 

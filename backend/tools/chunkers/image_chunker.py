@@ -15,6 +15,7 @@ from backend.tools.parsers.parse_result import ParseResult
 
 
 def chunk(result: ParseResult) -> list[StructuralChunk]:
+    """Window OCR-extracted plain text into prose leaf chunks by paragraph."""
     if result.parser_type != "ocr":
         raise RuntimeError(
             "ImageChunker received a non-OCR ParseResult. "

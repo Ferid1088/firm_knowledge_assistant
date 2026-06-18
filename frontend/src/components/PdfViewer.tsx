@@ -9,6 +9,7 @@ import { AlertTriangleIcon, FileSearchIcon } from "@/components/icons";
 type PdfJsLib = typeof import("pdfjs-dist");
 
 const SCALE = 1.5;
+const PAGE_GAP = 12; // px between page wraps (matches margin-bottom in style)
 
 export function PdfViewer({
   docId,
@@ -21,17 +22,20 @@ export function PdfViewer({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Record<number, HTMLDivElement>>({});
+  const observerRef = useRef<IntersectionObserver | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // layoutReady: true once ALL placeholder divs are in the DOM (scroll works).
+  // renderedPages: count of fully-rendered canvases (for overlay redraw timing).
+  const [layoutReady, setLayoutReady] = useState(false);
   const [renderedPages, setRenderedPages] = useState(0);
 
   useEffect(() => {
     if (!docId) return;
     let cancelled = false;
-    let pdfjsLib: PdfJsLib | null = null;
 
     async function render() {
       try {
-        pdfjsLib = await import("pdfjs-dist");
+        const pdfjsLib: PdfJsLib = await import("pdfjs-dist");
         pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
         const res = await fetch(`/api/originals/${encodeURIComponent(docId as string)}`);
@@ -43,28 +47,78 @@ export function PdfViewer({
 
         const container = containerRef.current;
         if (!container) return;
+
+        // Reset state
         container.innerHTML = "";
         pageRefs.current = {};
+        if (observerRef.current) {
+          observerRef.current.disconnect();
+          observerRef.current = null;
+        }
+        setLayoutReady(false);
+        setRenderedPages(0);
 
+        // Use first-page dimensions for all placeholders (typical for legal docs).
+        // Pages that differ will self-correct when their canvas renders.
+        const firstPageObj = await pdf.getPage(1);
+        const firstViewport = firstPageObj.getViewport({ scale: SCALE });
+        const placeholderW = firstViewport.width;
+        const placeholderH = firstViewport.height;
+
+        // ── Create placeholder divs for ALL pages immediately ──────────────
+        // This makes the scroll container full-height so scrollIntoView works
+        // even before canvases are painted.
         for (let p = 1; p <= pdf.numPages; p++) {
+          const wrap = document.createElement("div");
+          wrap.style.cssText = `position:relative;margin:0 auto ${PAGE_GAP}px;width:${placeholderW}px;height:${placeholderH}px;box-shadow:0 1px 6px rgba(0,0,0,.2);background:#f5f5f5`;
+          wrap.dataset.page = String(p);
+          container.appendChild(wrap);
+          pageRefs.current[p] = wrap;
+        }
+
+        // Placeholders are in DOM → scrolling and highlight overlay now work.
+        if (!cancelled) setLayoutReady(true);
+
+        // ── Lazy-render canvas when a placeholder scrolls into view ────────
+        const renderCanvas = async (p: number) => {
+          if (cancelled) return;
+          const wrap = pageRefs.current[p];
+          if (!wrap || wrap.querySelector("canvas")) return; // already rendered
+
           const page = await pdf.getPage(p);
           const viewport = page.getViewport({ scale: SCALE });
 
-          const wrap = document.createElement("div");
-          wrap.style.cssText = `position:relative;margin:0 auto 12px;width:${viewport.width}px;height:${viewport.height}px;box-shadow:0 1px 6px rgba(0,0,0,.2);background:#fff`;
+          // Correct placeholder dimensions if this page differs from first page
+          wrap.style.width = `${viewport.width}px`;
+          wrap.style.height = `${viewport.height}px`;
 
           const canvas = document.createElement("canvas");
           canvas.width = viewport.width;
           canvas.height = viewport.height;
           wrap.appendChild(canvas);
-          container.appendChild(wrap);
-          pageRefs.current[p] = wrap;
+          wrap.style.background = "#fff";
 
           const ctx = canvas.getContext("2d");
-          if (!ctx) continue;
+          if (!ctx || cancelled) return;
           await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-          if (!cancelled) setRenderedPages(p);
-        }
+          if (!cancelled) setRenderedPages((n) => n + 1);
+        };
+
+        // 200px root margin ensures pages render slightly before they are visible.
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                const p = Number((entry.target as HTMLElement).dataset.page);
+                renderCanvas(p);
+              }
+            });
+          },
+          { root: container, rootMargin: "200px 0px", threshold: 0 }
+        );
+
+        observerRef.current = observer;
+        Object.values(pageRefs.current).forEach((wrap) => observer.observe(wrap));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -73,12 +127,45 @@ export function PdfViewer({
     render();
     return () => {
       cancelled = true;
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
+      }
     };
   }, [docId]);
 
-  // Draw / refresh highlight overlays whenever the highlighted chunk changes.
+  // ── Effect 1: Scroll to the cited page ────────────────────────────────────
+  // Fires ONLY when the user clicks a citation (jumpToken) or when the
+  // placeholder layout first becomes ready (layoutReady). Does NOT fire on
+  // every canvas render so the user can scroll freely after jumping.
   useEffect(() => {
-    // Clear previous overlays
+    if (!highlight) return;
+
+    const firstPage =
+      Object.keys(highlight.address.boxes).length > 0
+        ? Object.keys(highlight.address.boxes).map(Number).sort((a, b) => a - b)[0]
+        : highlight.address.page ?? null;
+
+    if (!firstPage) return;
+
+    if (pageRefs.current[firstPage]) {
+      pageRefs.current[firstPage].scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (containerRef.current) {
+      // Placeholders not yet in DOM (still loading) — estimate scroll position.
+      const anyWrap = Object.values(pageRefs.current)[0];
+      if (anyWrap) {
+        const pageH = anyWrap.offsetHeight + PAGE_GAP;
+        containerRef.current.scrollTop = (firstPage - 1) * pageH;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpToken, layoutReady]);
+
+  // ── Effect 2: Draw / refresh highlight overlay boxes ──────────────────────
+  // Redraws on highlight change and after each canvas render (so the box
+  // dimensions are correct if the canvas size differs from the placeholder).
+  // Does NOT scroll — the user stays wherever they scrolled to.
+  useEffect(() => {
     Object.values(pageRefs.current).forEach((wrap) => {
       wrap.querySelectorAll(".citation-box").forEach((el) => el.remove());
     });
@@ -101,15 +188,7 @@ export function PdfViewer({
         wrap.appendChild(box);
       });
     });
-
-    // Jump to the first highlighted page
-    const firstPage = Object.keys(highlight.address.boxes).map(Number).sort((a, b) => a - b)[0];
-    if (firstPage && pageRefs.current[firstPage]) {
-      pageRefs.current[firstPage].scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-    // jumpToken forces a re-run even if the same chunk is clicked again;
-    // renderedPages re-runs this once the highlighted page's canvas has appeared.
-  }, [highlight, jumpToken, renderedPages]);
+  }, [highlight, renderedPages]);
 
   if (!docId) {
     return (
@@ -154,7 +233,9 @@ export function PdfViewer({
           <span className="pdf-viewer-eyebrow">Document viewer</span>
           <h3>{docId}</h3>
         </div>
-        <div className="pdf-viewer-status">Rendered pages: {renderedPages || "…"}</div>
+        <div className="pdf-viewer-status">
+          {layoutReady ? `${renderedPages} pages rendered` : "Loading…"}
+        </div>
       </div>
       <div ref={containerRef} className="pdf-canvas-stage" />
     </div>

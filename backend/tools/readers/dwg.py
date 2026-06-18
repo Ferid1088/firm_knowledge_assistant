@@ -39,6 +39,7 @@ class DWGReaderTool(FileReaderTool):
     format_name = "dwg"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Return a RawContent with confidence=0 and a user-facing warning (no parser available)."""
         file_path = str(input_data)
         p = Path(file_path)
         warning = (

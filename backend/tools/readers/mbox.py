@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class MBOXReaderTool(FileReaderTool):
+    """Read MBOX mailbox files and extract all messages as structured email dicts."""
+
     metadata = ToolMetadata(
         name="reader:mbox",
         version="1.0.0",
@@ -32,6 +34,7 @@ class MBOXReaderTool(FileReaderTool):
     format_name = "mbox"
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Iterate all messages in the MBOX file and return their plain-text bodies."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

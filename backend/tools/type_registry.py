@@ -12,7 +12,7 @@ Embed strategies (step 8):
   vision_text_dense — pilot: same as text_dense (vision path deferred to GPU)
 """
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from backend.tools.parsers.parse_result import ParseResult
@@ -21,15 +21,25 @@ from backend.tools.chunk import StructuralChunk
 
 @dataclass(frozen=True)
 class DocTypeHandler:
+    """Immutable binding of a doc_type key to its parser, chunker, and embed strategy."""
+
     doc_type: str
     parse: Callable[[str], ParseResult]
     chunk: Callable[[ParseResult], list[StructuralChunk]]
     embed_strategy: str   # "text_dense" | "description_dense" | "vision_text_dense"
     parser_name: str      # informational
     chunker_name: str     # informational
+    table_schemas: dict = field(default_factory=dict)
+    # Maps role-name → list of lowercase header keywords that identify that role.
+    # Used by pipeline to classify each table chunk's table_role payload field.
 
 
 def _build_registry() -> dict[str, DocTypeHandler]:
+    """Construct the dispatch table mapping each doc_type key to its handler.
+
+    Imports are lazy so that parser/chunker modules (which may load heavy
+    dependencies like Docling) are not imported until the pipeline actually runs.
+    """
     # Lazy imports so individual chunker/parser modules don't load at import time
     from backend.tools.parsers import docling_parser, ocr_parser, eml_parser
     from backend.tools.chunkers import (
@@ -61,6 +71,11 @@ def _build_registry() -> dict[str, DocTypeHandler]:
             embed_strategy="text_dense",   # vision_text_dense on GPU
             parser_name="Docling",
             chunker_name="PlanChunker",
+            table_schemas={
+                "requirements": ["anforderung", "requirement", "spezifikation", "spec"],
+                "schedule": ["datum", "milestone", "meilenstein", "date", "deadline", "termin"],
+                "resources": ["ressource", "resource", "mitarbeiter", "person", "team"],
+            },
         ),
         "scanned_image": DocTypeHandler(
             doc_type="scanned_image",
@@ -77,6 +92,12 @@ def _build_registry() -> dict[str, DocTypeHandler]:
             embed_strategy="text_dense",
             parser_name="Docling",
             chunker_name="ClauseAtomic",
+            table_schemas={
+                "parties": ["vertragspartner", "auftragnehmer", "auftraggeber", "party", "contractor", "client"],
+                "pricing": ["preis", "betrag", "summe", "price", "amount", "fee", "honorar", "vergütung"],
+                "schedule": ["frist", "datum", "termin", "deadline", "date", "laufzeit", "gültigkeit"],
+                "obligations": ["pflicht", "leistung", "verpflichtung", "obligation", "scope"],
+            },
         ),
         "authority_document": DocTypeHandler(
             doc_type="authority_document",
@@ -85,6 +106,10 @@ def _build_registry() -> dict[str, DocTypeHandler]:
             embed_strategy="text_dense",
             parser_name="Docling",
             chunker_name="DocumentStructureChunker",
+            table_schemas={
+                "obligations": ["pflicht", "verpflichtung", "obligation", "anforderung", "requirement"],
+                "penalties": ["strafe", "bußgeld", "sanktion", "penalty", "fine"],
+            },
         ),
         "project_management": DocTypeHandler(
             doc_type="project_management",
@@ -93,6 +118,11 @@ def _build_registry() -> dict[str, DocTypeHandler]:
             embed_strategy="text_dense",   # dense + temporal-sparse on GPU
             parser_name="Docling",
             chunker_name="ProjectChunker",
+            table_schemas={
+                "milestones": ["meilenstein", "milestone", "phase", "datum", "date", "frist"],
+                "budget": ["budget", "kosten", "cost", "aufwand", "effort", "ressource"],
+                "risks": ["risiko", "risk", "wahrscheinlichkeit", "probability", "impact"],
+            },
         ),
         "knowledge_base": DocTypeHandler(
             doc_type="knowledge_base",
@@ -125,17 +155,18 @@ _REGISTRY: dict[str, DocTypeHandler] | None = None
 
 
 def get_handler(doc_type: str) -> DocTypeHandler:
+    """Return the DocTypeHandler for doc_type, falling back to prose_text for unknown types."""
     global _REGISTRY
     if _REGISTRY is None:
         _REGISTRY = _build_registry()
     handler = _REGISTRY.get(doc_type)
     if handler is None:
-        # Unknown type falls back to prose_text
         handler = _REGISTRY["prose_text"]
     return handler
 
 
 def all_doc_types() -> list[str]:
+    """List all registered doc_type keys."""
     global _REGISTRY
     if _REGISTRY is None:
         _REGISTRY = _build_registry()
@@ -143,6 +174,7 @@ def all_doc_types() -> list[str]:
 
 
 def handler_info(doc_type: str) -> dict:
+    """Return a plain dict with parser, chunker, and embed_strategy for logging."""
     h = get_handler(doc_type)
     return {
         "doc_type": h.doc_type,

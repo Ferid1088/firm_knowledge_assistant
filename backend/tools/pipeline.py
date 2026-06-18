@@ -53,6 +53,8 @@ def _get_reader(file_path: str):
 
 @dataclass
 class IngestResult:
+    """Summary returned by the full ingest pipeline for a single document."""
+
     n_chunks: int
     doc_type: str
     doc_type_confidence: float
@@ -65,6 +67,7 @@ class IngestResult:
 # ── Language detection ─────────────────────────────────────────────────────────
 
 def _detect_lang(text: str) -> str:
+    """Detect ISO-639-1 language code of text; maps unknown codes to 'de'."""
     try:
         from langdetect import detect
         lang_map = {"de": "de", "en": "en", "fr": "fr", "es": "es"}
@@ -80,12 +83,13 @@ def ingest(
     persist_dir: str = QDRANT_DIR,
     verbose: bool = True,
     doc_type_id: str | None = None,
+    department_ids: list[str] | None = None,
 ) -> IngestResult:
     """Run the full 10-step ingestion pipeline.
 
-    doc_type_id: admin-defined document type ID selected by the user at upload
-                 time. When provided, skips LLM-on-sample detection. When None,
-                 falls back to detect_type().
+    doc_type_id: admin-defined document type ID; when None, auto-detected.
+    department_ids: list of department IDs the document belongs to; stamped
+                    onto every chunk's metadata and Qdrant payload.
     """
     pdf_path = str(Path(pdf_path).resolve())
     doc_id = Path(pdf_path).stem
@@ -191,10 +195,21 @@ def ingest(
 
     leaf_chunks = [c for c in chunks if c.is_leaf]
 
-    # Stamp doc_type + embed_strategy onto every chunk's metadata
+    # Stamp semantic_type (doc_type), structural_type, embed_strategy, department_ids
+    _dept_ids = department_ids or []
+    from backend.tools.chunk import classify_table_role
+    _table_schemas = handler.table_schemas
     for ch in chunks:
         ch.metadata.setdefault("doc_type", resolved_type)
+        ch.metadata.setdefault("doc_type_id", doc_type_id or resolved_type)
         ch.metadata.setdefault("embed_strategy", info["embed_strategy"])
+        ch.metadata["department_ids"] = _dept_ids
+        # structural_type mirrors chunk_type for dual-label querying per adaptive spec
+        ch.metadata["structural_type"] = ch.chunk_type
+        # classify table role using doc-type-specific keyword schemas
+        if ch.chunk_type == "table":
+            headers = ch.metadata.get("table_structure", {}).get("headers", [])
+            ch.metadata["table_role"] = classify_table_role(headers, _table_schemas)
 
     if verbose:
         print(f"            {len(chunks)} total chunks ({len(leaf_chunks)} leaves)")

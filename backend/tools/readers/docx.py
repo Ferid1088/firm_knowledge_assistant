@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class DOCXReaderTool(FileReaderTool):
+    """Extract paragraphs, headings, and tables from DOCX files via python-docx."""
+
     metadata = ToolMetadata(
         name="reader:docx",
         version="1.0.0",
@@ -32,6 +34,7 @@ class DOCXReaderTool(FileReaderTool):
     format_name = "docx"
 
     def _validate_dependencies(self) -> None:
+        """Check that python-docx is installed (pip name differs from import name)."""
         # python-docx installs as 'python-docx' but imports as 'docx'
         import importlib
         try:
@@ -43,6 +46,7 @@ class DOCXReaderTool(FileReaderTool):
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
+        """Read the DOCX file and return paragraphs, sections, and table data."""
         file_path = str(input_data)
         is_valid, error = await self.validate_input(file_path)
         if not is_valid:

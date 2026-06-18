@@ -126,6 +126,13 @@ CREATE TABLE IF NOT EXISTS user_doc_type_permissions (
     PRIMARY KEY (user_id, doc_type_id)
 );
 
+-- Per-user department access (if NO rows exist for a user, they see ALL active departments)
+CREATE TABLE IF NOT EXISTS user_department_permissions (
+    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    department_id TEXT NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, department_id)
+);
+
 -- Response cache: skip full pipeline on repeated identical queries
 CREATE TABLE IF NOT EXISTS response_cache (
     cache_key       TEXT PRIMARY KEY,
