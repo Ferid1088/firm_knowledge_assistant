@@ -42,7 +42,7 @@ class DOCXReaderTool(FileReaderTool):
         except ImportError:
             raise ImportError(
                 f"Tool '{self.metadata.name}' requires 'python-docx>=0.8.11'. "
-                "Install with: pip install python-docx"
+                "Install with: uv pip install python-docx"
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:

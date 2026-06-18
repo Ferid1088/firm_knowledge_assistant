@@ -41,7 +41,7 @@ class PPTXReaderTool(FileReaderTool):
         except ImportError:
             raise ImportError(
                 f"Tool '{self.metadata.name}' requires 'python-pptx>=0.6'. "
-                "Install with: pip install python-pptx"
+                "Install with: uv pip install python-pptx"
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:

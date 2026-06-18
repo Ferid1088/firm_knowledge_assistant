@@ -49,7 +49,7 @@ class ImageReaderTool(FileReaderTool):
         except ImportError:
             raise ImportError(
                 f"Tool '{self.metadata.name}' requires 'Pillow>=9.0'. "
-                "Install with: pip install Pillow"
+                "Install with: uv pip install Pillow"
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:

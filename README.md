@@ -1,35 +1,37 @@
-# Local RAG — Enterprise Document Intelligence
+# Firm Knowledge Assistant
 
-> Air-gapped, local-only Retrieval-Augmented Generation over PDFs and office documents.  
-> Answers in the user's language with verified, clickable source citations.  
+> Air-gapped, local-only Retrieval-Augmented Generation for enterprise documents.
+> Answers in the user's language with verified, clickable source citations.
 > Nothing leaves the company network.
 
 ---
 
-## Agent Purpose
+## What it does
 
-### What it does
-
-This agent is a **private document intelligence workspace**. You upload internal documents (PDFs, Word files, spreadsheets, drawings, emails …), ask questions in German or English, and receive precise answers with highlighted citations that link back to the exact page and passage in the original file.
-
-### Why it is useful
+A **private document intelligence workspace**. Upload internal documents (PDFs, Word, Excel, PowerPoint, emails, drawings, and more), ask questions in German or English, and receive precise answers with highlighted citations linking back to the exact page and passage in the original file.
 
 | Problem | How this agent solves it |
 |---|---|
-| Sensitive documents cannot leave the network | 100 % local inference — Ollama LLM, local Qwen3 embedding, self-hosted Qdrant vector store |
-| Answers must be verifiable, not hallucinated | Every claim is quote-verified against the source chunk before the answer is returned |
-| Tables and structured data are lost in plain-text pipelines | Docling TableFormer pipeline extracts table structure from the PDF layer; numbers are never hallucinated |
-| Users write in different languages | Bidirectional DE ↔ EN retrieval; answer language follows the question language |
-| Multiple staff need access to the same knowledge base | Multi-user IAM (dentity and Access Management) with departments, roles, per-user conversation isolation, and conversation sharing |
+| Sensitive documents cannot leave the network | 100 % local inference — Ollama LLM, Qwen3 embedding, self-hosted Qdrant |
+| Answers must be verifiable | Every claim is quote-verified against the source chunk before the answer is returned |
+| Tables and structured data are lost in plain-text pipelines | Docling TableFormer extracts table structure from the PDF layer; numbers are never hallucinated |
+| Users write in different languages | Bidirectional DE ↔ EN retrieval; answer language follows the question |
+| Multiple staff need shared access | Multi-user IAM with departments, roles, conversation isolation, and sharing |
 
 ### Target users
 
-Internal enterprise users on managed devices. Typical roles:
+Internal enterprise users on managed devices — technical staff, legal/compliance, HR/management, and administrators.
 
-- **Technical staff** — query DIN/ISO norms, operating manuals, technical drawings
-- **Legal / compliance** — search contracts, clauses, regulatory documents
-- **HR / management** — policy documents, guidelines, project plans
-- **Administrators** — manage users, departments, document types via the admin panel
+---
+
+## Prerequisites
+
+| Tool | Version | Purpose |
+|---|---|---|
+| [uv](https://docs.astral.sh/uv/) | ≥ 0.7 | Python package & venv management |
+| Python | 3.11+ | Backend runtime |
+| Node.js | 20+ | Frontend (Next.js) |
+| [Ollama](https://ollama.com/) | latest | Local LLM inference (`qwen3:8b`) |
 
 ---
 
@@ -37,24 +39,29 @@ Internal enterprise users on managed devices. Typical roles:
 
 ```bash
 # 1. Clone and enter the project
-git clone <internal-repo-url>
-cd general_RAG_pilot
+git clone https://github.com/Ferid1088/firm_knowledge_assistant.git
+cd firm_knowledge_assistant
 
 # 2. Create a virtual environment
-python3 -m venv .venv
+uv venv .venv
 
 # 3. Install all dependencies (Python + Node)
 make install
 
-# 4. Copy and fill in the Langfuse credentials (optional — observability)
+# 4. Pull the answering model
+ollama pull qwen3:8b
+
+# 5. (Optional) Set up Langfuse observability
 cp .env.langfuse.example .env.langfuse   # edit with your self-hosted keys
 
-# 5. Start both backend and frontend
+# 6. Start both backend and frontend
 make dev
 ```
 
-Open **http://localhost:3000** in your browser.  
-The backend API is at **http://localhost:8000**.
+Open **http://localhost:3000** in your browser.
+The backend API docs are at **http://localhost:8000/docs**.
+
+On first launch, navigate to the setup wizard to create the initial superadmin account.
 
 ---
 
@@ -68,41 +75,41 @@ The backend API is at **http://localhost:8000**.
 | `make logs` | Tail combined log files (`.logs/backend.log` + `.logs/frontend.log`) |
 | `make backend` | Start the FastAPI backend only (port 8000, `--reload`) |
 | `make frontend` | Start the Next.js frontend only (port 3000) |
-| `make install` | `pip install -r requirements.txt` + `npm install` in `frontend/` |
+| `make install` | `uv pip install -r requirements.txt` + `npm install` in `frontend/` |
 | `make test` | Run the full pytest test suite (`tests/`) |
 
 ---
 
-## Architecture overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Browser (PWA)                            │
-│   Next.js + assistant-ui  │  PDF.js viewer  │  Admin panel      │
-└────────────────┬───────────────────────┬────────────────────────┘
-                 │  REST / cookie auth   │
-┌────────────────▼───────────────────────▼────────────────────────┐
-│                    FastAPI Backend  :8000                        │
-│  /api/conversations  /api/ingest  /api/originals  /api/admin    │
-└────────────────┬────────────────────────────────────────────────┘
-                 │
-        ┌────────▼────────┐
-        │   LangGraph     │   stateful orchestration
-        │   RAG Graph     │
-        └────────┬────────┘
-                 │
-    ┌────────────┼───────────────┐
-    │            │               │
-┌───▼───┐  ┌────▼────┐  ┌──────▼──────┐
-│Qdrant │  │ Qwen3   │  │Ollama / vLLM│
-│(local)│  │Embed +  │  │(local LLM)  │
-│vector │  │Reranker │  │             │
-│store  │  └─────────┘  └─────────────┘
-└───────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         Browser (PWA)                            │
+│   Next.js + assistant-ui  │  PDF.js viewer  │  Admin panel       │
+└─────────────┬──────────────────────────┬─────────────────────────┘
+              │  REST / cookie auth      │
+┌─────────────▼──────────────────────────▼─────────────────────────┐
+│                     FastAPI Backend  :8000                        │
+│  /api/conversations  /api/ingest  /api/originals  /api/admin     │
+└─────────────┬────────────────────────────────────────────────────┘
+              │
+     ┌────────▼────────┐
+     │   LangGraph     │   stateful orchestration
+     │   RAG Graph     │
+     └────────┬────────┘
+              │
+  ┌───────────┼───────────────┐
+  │           │               │
+┌─▼─────┐ ┌──▼───────┐ ┌─────▼───────┐
+│Qdrant │ │ Qwen3    │ │Ollama/vLLM  │
+│(local)│ │Embed +   │ │(local LLM)  │
+│vector │ │Reranker  │ │             │
+│store  │ └──────────┘ └─────────────┘
+└───┬───┘
     │
 ┌───▼────────────────┐
 │ SQLite (app.db)    │  users, conversations, messages
-│ AES-256-GCM msgs   │  (encrypted + Ed25519 signed)
+│ AES-256-GCM msgs   │  encrypted + Ed25519 signed
 └────────────────────┘
 ```
 
@@ -113,174 +120,171 @@ The backend API is at **http://localhost:8000**.
 Documents go through a five-stage offline pipeline before they are searchable.
 
 ```
-Upload
-  │
-  ▼
-┌─────────────┐
-│  1. DETECT  │  type_detector.py — identify format by MIME + extension
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  2. READ    │  reader selected from ToolRegistry (14 formats, see table below)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  3. PARSE   │  Docling DocumentConverter — TableFormer pipeline
-│             │  do_ocr=False; scanned pages quarantined automatically
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  4. CHUNK   │  chunker selected by document type (see table below)
-│             │  structural parent-child tree; atomic leaves for tables & clauses
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  5. EMBED   │  Qwen3-Embedding-0.6B (dense) + BM25 sparse vectors
-│  & INDEX    │  named sparse fields per language: sparse_de, sparse_en
-│             │  stored in Qdrant collection "rag_chunks"
-└─────────────┘
+Upload → 1. DETECT → 2. READ → 3. PARSE → 4. CHUNK → 5. EMBED & INDEX
 ```
 
-### Supported file formats
+### Supported file formats (15 readers)
 
-| Format | Extension | Reader | Dependency | Notes |
-|---|---|---|---|---|
-| PDF | `.pdf` | `readers/pdf.py` | pdfplumber (via Docling) | Default; TableFormer for tables |
-| Word | `.docx` | `readers/docx.py` | python-docx | Text + tables |
-| Excel | `.xlsx` | `readers/xlsx.py` | openpyxl | All sheets |
-| CSV | `.csv` | `readers/csv.py` | stdlib | Auto-detect delimiter |
-| Plain text | `.txt` | `readers/txt.py` | stdlib | UTF-8 / Latin-1 |
-| Email | `.eml` | `readers/eml.py` | stdlib email | Headers + body |
-| Mailbox | `.mbox` | `readers/mbox.py` | stdlib mailbox | Multiple messages |
-| Outlook | `.msg` | `readers/msg.py` | extract-msg *(opt)* | Optional dep |
-| OpenDocument text | `.odt` | `readers/odt.py` | stdlib xml | |
-| OpenDocument sheet | `.ods` | `readers/ods.py` | stdlib xml | |
-| PowerPoint | `.pptx` | `readers/pptx.py` | python-pptx | Slide text + notes |
-| SVG | `.svg` | `readers/svg.py` | stdlib xml | Text elements only |
-| DXF drawing | `.dxf` | `readers/dxf.py` | ezdxf *(opt)* | Entity text extraction |
-| DWG drawing | `.dwg` | `readers/dwg.py` | — | Stub; no open-source parser yet |
-| Image | `.png/.jpg/…` | `readers/image.py` | Pillow | Metadata only (no OCR) |
+| Format | Extension | Reader | Dependency |
+|---|---|---|---|
+| PDF | `.pdf` | `readers/pdf.py` | Docling (TableFormer) |
+| Word | `.docx` | `readers/docx.py` | python-docx |
+| Excel | `.xlsx` | `readers/xlsx.py` | openpyxl |
+| PowerPoint | `.pptx` | `readers/pptx.py` | python-pptx |
+| CSV | `.csv` | `readers/csv.py` | stdlib |
+| Plain text | `.txt` | `readers/txt.py` | stdlib |
+| Email | `.eml` | `readers/eml.py` | stdlib |
+| Mailbox | `.mbox` | `readers/mbox.py` | stdlib |
+| Outlook | `.msg` | `readers/msg.py` | extract-msg |
+| OpenDocument text | `.odt` | `readers/odt.py` | stdlib xml |
+| OpenDocument sheet | `.ods` | `readers/ods.py` | stdlib xml |
+| SVG | `.svg` | `readers/svg.py` | stdlib xml |
+| DXF drawing | `.dxf` | `readers/dxf.py` | ezdxf |
+| DWG drawing | `.dwg` | `readers/dwg.py` | *(stub — no parser yet)* |
+| Image | `.png/.jpg/…` | `readers/image.py` | Pillow |
 
-### Chunking strategies by document type
+Enable/disable individual readers in `config/tools.yaml` without touching code.
+
+### Chunking strategies (8 domain chunkers)
 
 | Document type | Chunker | Strategy |
 |---|---|---|
-| Authority document (DIN/ISO, norm, regulation) | `document_structure.py` | Parent heading → child prose leaves via HybridChunker (max 512 tokens); tables kept atomic |
-| Table-heavy document | `table_atomic.py` | Every Docling table extracted as one atomic leaf; prose uses HybridChunker |
-| Legal contract | `clause_atomic.py` | Article/Clause/Numbered paragraph → atomic leaf; nested prose windowed |
-| Technical plan / work packages | `plan_chunker.py` | Phase → Work Package → Task/Milestone hierarchy; milestones atomic |
-| Project document | `project_chunker.py` | Project items and milestones as atomic leaves with temporal metadata |
-| Email thread | `thread_chunker.py` | Each message as one chunk; thread header as parent context |
-| Image / drawing | `image_chunker.py` | Metadata + alt-text chunk; no OCR (scanned guard fires) |
-| Generic prose | `hybrid.py` | HybridChunker windowed within section boundaries |
+| Authority document (DIN/ISO) | `document_structure.py` | Heading parents → prose leaves via HybridChunker (max 512 tokens); tables kept atomic |
+| Table-heavy document | `table_atomic.py` | Each table as one atomic leaf; prose windowed |
+| Legal contract | `clause_atomic.py` | Article/clause → atomic leaf; nested prose windowed |
+| Technical plan | `plan_chunker.py` | Phase → Work Package → Task/Milestone hierarchy |
+| Project document | `project_chunker.py` | Project items and milestones as atomic leaves |
+| Email thread | `thread_chunker.py` | One chunk per message; thread header as parent |
+| Image / drawing | `image_chunker.py` | Metadata + alt-text chunk (no OCR) |
+| Generic prose | `hybrid.py` | HybridChunker, section-windowed, max 512 tokens |
 
-> **Scanned-PDF guard:** pages without an extractable text layer are flagged and quarantined automatically — blank chunks are never indexed.
+Scanned PDFs (pages without extractable text) are flagged and quarantined — blank chunks are never indexed.
 
 ---
 
 ## Query pipeline (LangGraph)
 
-Every question flows through a bounded stateful graph with a hard loop cap (`MAX_ATTEMPTS = 3`).
+Every question flows through a bounded stateful graph with a hard loop cap.
 
 ```
 User question
       │
       ▼
-┌─────────────────┐
-│ prepare_query   │  language detect → answer_lang
-│                 │  translate query once per active language (cached)
-│                 │  decompose multi-part questions into sub-questions
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│    retrieve     │  dense pass (Qwen3 cross-lingual, all docs)
-│                 │  + BM25 pass per active language (sparse_de, sparse_en …)
-│                 │  Reciprocal Rank Fusion → deep pool (~50 candidates)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│     rerank      │  Qwen3-Reranker → top-8 scored candidates
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│score_confidence │  top-1 score vs threshold (0.55)
-│                 │  gap to top-2 for uncertainty signal
-└────────┬────────┘
-         │
-    ┌────┴──────────────────┐
-    │ ROUTER                │
-    ▼                       ▼                    ▼
-┌────────┐          ┌──────────────┐      ┌──────────┐
-│ answer │          │   escalate   │      │  abstain │
-│        │          │ widen pool   │      │ (no      │
-│ local  │          │ rewrite query│      │ answer   │
-│ LLM in │          │ loop back    │      │ grounded)│
-│ answer │          │ to retrieve  │      └──────────┘
-│ _lang  │          └──────────────┘
-└────────┘
-    │
-    ▼
-JSON contract
-  { answer, claims: [{text, source, quote, verified}] }
-    │
-    ▼
-Quote verification  ←  checks each quote against source chunk text
-    │
-    ▼
-artifact_chunks     ←  {chunk_id, text, boxes, address, quote}
-    │
-    ▼
-Response cache      ←  SHA-256 keyed; TTL 1 h; skips pipeline on hit
-    │
-    ▼
-Persist to SQLite   ←  encrypted (AES-256-GCM) + Ed25519 signed
-    │
-    ▼
-ChatResponse → UI
+ prepare_query    → detect language, set answer_lang, translate once per active language
+      │
+      ▼
+    retrieve      → dense (cross-lingual) + BM25 per active language → RRF → deep pool
+      │
+      ▼
+    rerank        → Qwen3-Reranker → top-k
+      │
+      ▼
+ score_confidence → threshold check
+      │
+  ┌───┴──────────────┐
+  ▼                  ▼                  ▼
+answer          escalate            abstain
+(local LLM,     (widen pool /        (no grounded
+ JSON contract,  rewrite query,       answer found)
+ quote-verify)   loop back)
 ```
 
 ### Retrieval parameters
 
-| Parameter | Default | Description |
+| Parameter | Default | Config key |
 |---|---|---|
-| `RETRIEVE_DEEP_POOL` | 50 | Candidates retrieved before reranking |
-| `RERANKER_TOP_K` | 8 | Candidates passed into reranker |
-| `RETRIEVE_K` | 5 | Final top-k sent to answer node |
-| `CONFIDENCE_THRESHOLD` | 0.55 | Below this → escalate |
-| `CONFIDENCE_GAP_MIN` | 0.05 | Small top-1/top-2 gap adds uncertainty |
-| `MAX_ATTEMPTS` | 3 | Hard escalation loop cap |
+| Deep pool size | 50 | `RETRIEVE_DEEP_POOL` |
+| Reranker candidates | 8 | `RERANKER_TOP_K` |
+| Final top-k | 5 | `RETRIEVE_K` |
+| Confidence threshold | 0.55 | `CONFIDENCE_THRESHOLD` |
+| Max escalation attempts | 3 | `MAX_ATTEMPTS` |
 
 ### Language handling
 
-| Scenario | Behaviour |
+- Dense retrieval is always cross-lingual (covers all indexed languages).
+- BM25 runs per active language using the query translated into that language.
+- German is always active; additional languages are toggled in the UI dropdown.
+- Exact part numbers and codes are never translated.
+- Answer language follows the query language (overridable by explicit instruction).
+
+---
+
+## Authentication & access control
+
+### Session management
+
+| Property | Value |
 |---|---|
-| German question, German docs | German BM25 pass (with decompounding) + dense retrieval |
-| English question, English docs | English BM25 pass + dense retrieval |
-| German question, mixed DE+EN docs | Dense retrieval (cross-lingual) + BM25 in both languages |
-| Exact part number / code in query | Code never translated; BM25 matches verbatim across all languages |
-| Low confidence after 3 attempts | Abstain response in the user's language |
+| Storage | SQLite `user_sessions` table |
+| Cookie | `rag_session`, HttpOnly, SameSite=strict |
+| TTL | 3 600 s (1 hour), refreshed per request |
+| First-run setup | `POST /api/auth/setup` — creates the first superadmin when zero users exist |
+
+### Roles & permissions
+
+| Role | Who gets it |
+|---|---|
+| `superadmin` | First user via setup wizard; additional admins promoted in admin panel |
+| `member` | All users created by an admin |
+
+| Permission | superadmin | member |
+|---|---|---|
+| Read own conversations | ✅ | ✅ |
+| Create conversations | ✅ | ✅ |
+| Read / upload documents | ✅ | ✅ |
+| Admin panel access | ✅ | ❌ |
+| Audit log access | ✅ | ❌ |
+
+### Additional access controls
+
+- **Document-type filtering** — users can be restricted to specific document types (e.g. only HR, not Technical). No restriction rows = access to all types.
+- **Department-based access** — per-user department permissions in `user_department_permissions`.
+- **Conversation isolation** — each conversation belongs to one user; superadmins can view any.
+- **Conversation sharing** — owners share with specific recipients (read-only via share tokens).
+- **Rate limiting** — 50 messages/hour, 10 conversations/day (configurable).
+
+### Data at rest
+
+- Messages encrypted with AES-256-GCM + Ed25519 integrity signatures.
+- Keys generated on first run in `database/keys/` (mode `0600`, never committed).
+- Passwords hashed with PBKDF2-SHA256 (260 000 iterations, 32-byte salt per user).
+
+### Audit log
+
+Every significant action (login, logout, user CRUD, permission changes, failed auth) is appended to the `audit_log` table. Superadmins browse it in the Admin → Audit tab.
 
 ---
 
 ## Security & air-gap
 
-| Layer | What is enforced |
+| Layer | Enforcement |
 |---|---|
-| **Inference** | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`; all models loaded from local paths; no cloud base_url anywhere |
-| **Observability** | LangSmith OFF; Langfuse self-hosted only (port 3001); traces never leave the network |
+| **Inference** | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`; all models from local paths; no cloud URLs |
+| **Observability** | LangSmith OFF; Langfuse self-hosted only; traces stay internal |
 | **Telemetry** | Qdrant telemetry OFF, HF telemetry OFF, `NEXT_TELEMETRY_DISABLED=1` |
-| **Frontend assets** | All JS/CSS/fonts bundled locally; no CDN; strict same-origin CSP |
-| **Auth** | Cookie-based sessions (PBKDF2-SHA256 passwords); session TTL 1 h; rate-limited (50 msg/h, 10 conv/day) |
-| **Data at rest** | Messages AES-256-GCM encrypted + Ed25519 integrity signatures in SQLite |
-| **Key material** | `database/keys/` generated on first run, `0600`, never committed |
-| **Network** | Default-deny egress firewall is the provable guarantee; all other layers are defence-in-depth |
+| **Frontend** | All JS/CSS/fonts bundled locally; no CDN; strict same-origin CSP |
+| **Network** | Default-deny egress firewall is the provable guarantee |
+
+---
+
+## Configuration
+
+All behavior is controlled from `backend/config.py` — nothing is hardcoded elsewhere.
+
+| Section | Key variables |
+|---|---|
+| Embedding | `EMBED_MODEL_ID`, `EMBED_DIM`, `EMBED_MAX_SEQ` |
+| Reranker | `RERANKER_MODEL_ID`, `RERANKER_TOP_K` |
+| LLM | `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `OLLAMA_TEMPERATURE` |
+| Chunking | `CHUNK_MAX_TOKENS`, `OVERSIZE_EMBED_THRESHOLD` |
+| Retrieval | `RETRIEVE_K`, `RETRIEVE_DEEP_POOL`, `MAX_ATTEMPTS`, `CONFIDENCE_THRESHOLD` |
+| Languages | `AVAILABLE_LANGUAGES`, `DEFAULT_ANSWER_LANG`, `ENABLE_TRANSLATED_BM25` |
+| IAM | `SEED_DEPARTMENTS`, `SEED_DOC_TYPES`, `SESSION_TTL_SECONDS`, `RATE_LIMIT_MSGS_PER_HOUR` |
+| Cache | `CACHE_ENABLED`, `CACHE_TTL_SECONDS`, `CACHE_MAX_ENTRIES`, `CACHE_MIN_CONFIDENCE` |
+| Observability | `LANGFUSE_ENABLED`, `LANGFUSE_HOST` (from `.env.langfuse`) |
+| Storage | `DATABASE_PATH`, `QDRANT_DIR`, `ORIGINALS_DIR` |
+
+To swap a model: change one value in `config.py`. To add a language: add one entry to `AVAILABLE_LANGUAGES` and provide `prompts/answer_<code>.txt` + `prompts/abstain_<code>.txt`.
 
 ---
 
@@ -288,198 +292,44 @@ ChatResponse → UI
 
 ```
 .
-├── Makefile                    # developer entry point
-├── requirements.txt            # Python dependencies (pinned)
+├── Makefile                     # developer entry point (uv-based)
+├── requirements.txt             # Python dependencies (pinned)
 ├── backend/
-│   ├── config.py               # ALL configuration — models, thresholds, flags, IAM
+│   ├── config.py                # central configuration — models, thresholds, flags, IAM
 │   ├── api/
-│   │   ├── main.py             # FastAPI app + all endpoints
-│   │   └── routes/             # auth, admin sub-routers
-│   ├── adapters/               # embedder.py, reranker.py (Qwen3 wrappers)
-│   ├── core/                   # ToolRegistry, config_loader, tool_base
-│   ├── database/               # schema.sql, __init__.py (init_db)
+│   │   ├── main.py              # FastAPI app + endpoints
+│   │   └── routes/              # auth.py, admin.py, config.py
+│   ├── adapters/                # embedder.py, reranker.py (Qwen3 wrappers)
+│   ├── core/                    # ToolRegistry, tool_base, tool_pipeline, config_loader
+│   ├── database/                # schema.sql, __init__.py (init_db), migrate_auth.py
 │   ├── graph/
-│   │   ├── graph.py            # LangGraph compiled graph + run()
-│   │   ├── state.py            # RAGState TypedDict
-│   │   └── nodes/              # one file per node: prepare_query, retrieve, rerank …
-│   ├── services/               # iam, auth, conversations, security, sharing,
-│   │                           # sessions, rate_limit, audit, observability,
-│   │                           # response_cache, admin, language, store, sparse
+│   │   ├── graph.py             # LangGraph compiled graph
+│   │   ├── state.py             # RAGState TypedDict
+│   │   └── nodes/               # prepare_query, retrieve, rerank, score_confidence,
+│   │                            # answer, escalate, abstain
+│   ├── services/                # iam, auth, sessions, conversations, sharing, security,
+│   │                            # rate_limit, audit, response_cache, admin, language,
+│   │                            # store, sparse, citations, observability
 │   └── tools/
-│       ├── readers/            # 14 format readers
-│       ├── parsers/            # docling_parser, eml_parser, ocr_parser
-│       └── chunkers/           # 8 domain chunkers
+│       ├── readers/             # 15 format readers (auto-discovered)
+│       ├── parsers/             # docling_parser, eml_parser, ocr_parser
+│       ├── chunkers/            # 8 domain chunkers (auto-discovered)
+│       ├── pipeline.py          # ingestion orchestration
+│       ├── type_detector.py     # MIME + extension detection
+│       └── type_registry.py     # format → reader mapping
 ├── config/
-│   └── tools.yaml              # enable / disable individual file-reader tools
-├── prompts/                    # external prompt templates (answer_de/en, abstain, hyde)
+│   └── tools.yaml               # enable/disable individual tools at runtime
+├── prompts/                     # external prompt templates (answer, abstain, hyde × de/en)
 ├── frontend/
 │   └── src/
-│       ├── app/                # Next.js pages: login, chat, admin, change-password
-│       ├── components/         # ConversationSidebar, PdfViewer, UploadPdf, icons
-│       └── lib/                # chatAdapter, auth, types
-├── tests/                      # pytest: access control, encryption, rate limit,
-│                               # sessions, integrity
-├── eval/                       # recall_harness.py — recall@k evaluation
-└── scripts/                    # setup.py (first-run admin), random_chunks.py
+│       ├── app/                 # Next.js pages: login, chat, admin, change-password, setup
+│       ├── components/          # ConversationSidebar, PdfViewer, UploadPdf, icons
+│       └── lib/                 # chatAdapter, auth, types, backend proxy
+├── tests/                       # pytest: auth, API routes, graph nodes, tools
+├── eval/                        # eval_set.json + recall_harness.py
+├── scripts/                     # setup.py (first-run admin), random_chunks.py
+└── database/                    # app.db + keys/ (generated at runtime, gitignored)
 ```
-
----
-
-## Configuration reference
-
-All behaviour is controlled from **`backend/config.py`** — no values are hardcoded elsewhere.
-
-| Section | Key variables |
-|---|---|
-| Embedding | `EMBED_MODEL_ID`, `EMBED_DIM`, `EMBED_MAX_SEQ`, `EMBED_QUERY_INSTRUCTION` |
-| Reranker | `RERANKER_MODEL_ID`, `RERANKER_TOP_K` |
-| LLM | `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `OLLAMA_TEMPERATURE` |
-| Chunking | `CHUNK_MAX_TOKENS`, `OVERSIZE_EMBED_THRESHOLD` |
-| Retrieval | `RETRIEVE_K`, `RETRIEVE_DEEP_POOL`, `MAX_ATTEMPTS`, `CONFIDENCE_THRESHOLD` |
-| Languages | `AVAILABLE_LANGUAGES`, `DEFAULT_ANSWER_LANG`, `ENABLE_TRANSLATED_BM25` |
-| IAM | `SEED_DEPARTMENTS`, `SESSION_TTL_SECONDS`, `RATE_LIMIT_MSGS_PER_HOUR` |
-| Cache | `CACHE_ENABLED`, `CACHE_TTL_SECONDS`, `CACHE_MAX_ENTRIES`, `CACHE_MIN_CONFIDENCE` |
-| Observability | `LANGFUSE_ENABLED`, `LANGFUSE_HOST` (read from `.env.langfuse`) |
-| Storage | `DATABASE_PATH`, `QDRANT_DIR`, `ORIGINALS_DIR` |
-
-To swap a model: change one value in `config.py`. To add a language: add one entry to `AVAILABLE_LANGUAGES` and provide `prompts/answer_<code>.txt` + `prompts/abstain_<code>.txt`.
-
----
-
-## Tool registry
-
-All file readers, parsers, and chunkers are discovered automatically from their directories and registered in the `ToolRegistry` ([backend/core/tool_registry.py](backend/core/tool_registry.py)). Enable or disable individual tools at runtime without touching code — edit [config/tools.yaml](config/tools.yaml).
-
-### File readers
-
-| Tool key | File | Extensions | Enabled | Timeout | Max size | Dep |
-|---|---|---|---|---|---|---|
-| `reader:pdf` | `readers/pdf.py` | `.pdf` | ✅ | 60 s | 100 MB | Docling |
-| `reader:docx` | `readers/docx.py` | `.docx` | ✅ | 30 s | 50 MB | python-docx |
-| `reader:xlsx` | `readers/xlsx.py` | `.xlsx` | ✅ | 30 s | 50 MB | openpyxl |
-| `reader:csv` | `readers/csv.py` | `.csv` | ✅ | 15 s | 100 MB | stdlib |
-| `reader:txt` | `readers/txt.py` | `.txt` | ✅ | 10 s | 20 MB | stdlib |
-| `reader:eml` | `readers/eml.py` | `.eml` | ✅ | 15 s | 25 MB | stdlib |
-| `reader:mbox` | `readers/mbox.py` | `.mbox` | ✅ | 60 s | 200 MB | stdlib |
-| `reader:msg` | `readers/msg.py` | `.msg` | ✅ | 15 s | 25 MB | extract-msg |
-| `reader:odt` | `readers/odt.py` | `.odt` | ✅ | 30 s | 50 MB | stdlib xml |
-| `reader:ods` | `readers/ods.py` | `.ods` | ✅ | 30 s | 50 MB | stdlib xml |
-| `reader:pptx` | `readers/pptx.py` | `.pptx` | ✅ | 60 s | 100 MB | python-pptx |
-| `reader:svg` | `readers/svg.py` | `.svg` | ✅ | 10 s | 10 MB | stdlib xml |
-| `reader:dxf` | `readers/dxf.py` | `.dxf` | ✅ | 30 s | 100 MB | ezdxf |
-| `reader:image` | `readers/image.py` | `.png .jpg .webp …` | ✅ | 30 s | 50 MB | Pillow |
-| `reader:dwg` | `readers/dwg.py` | `.dwg` | ❌ | 30 s | 100 MB | *(stub — no open-source parser)* |
-
-To disable a reader: set `enabled: false` under its key in [config/tools.yaml](config/tools.yaml). The type-detector will reject that extension at upload time.
-
-### Parsers
-
-| Tool | File | Purpose |
-|---|---|---|
-| `docling_parser` | `parsers/docling_parser.py` | Primary parser — Docling TableFormer pipeline, `do_ocr=False`; produces `DoclingDocument` used by all structural chunkers |
-| `eml_parser` | `parsers/eml_parser.py` | Email-specific extraction (headers, MIME parts, inline attachments) before threading |
-| `ocr_parser` | `parsers/ocr_parser.py` | Stub for future scanned-PDF path — currently raises if called; scanned pages are quarantined, not silently ingested |
-
-### Chunkers
-
-| Tool | File | Input | Chunk types produced |
-|---|---|---|---|
-| `document_structure` | `chunkers/document_structure.py` | DoclingDocument | `heading` (parent) + `prose` leaves via HybridChunker |
-| `table_atomic` | `chunkers/table_atomic.py` | DoclingDocument | `table` (atomic, whole — never split even if > 512 tokens) |
-| `clause_atomic` | `chunkers/clause_atomic.py` | DoclingDocument | `recommendation` / clause (atomic); nested prose windowed |
-| `hybrid` | `chunkers/hybrid.py` | DoclingDocument / text | `prose` (HybridChunker, max 512 tokens, section-windowed) |
-| `plan_chunker` | `chunkers/plan_chunker.py` | Project-plan docs | `plan_item`, `milestone` (atomic with temporal metadata) |
-| `project_chunker` | `chunkers/project_chunker.py` | Project documents | `project_item`, `milestone` (atomic) |
-| `thread_chunker` | `chunkers/thread_chunker.py` | Email / forum threads | one chunk per message; thread header as parent context |
-| `image_chunker` | `chunkers/image_chunker.py` | Image / drawing files | metadata + alt-text chunk (no OCR; scanned guard fires) |
-
----
-
-## Authentication & access policy
-
-### Login flow
-
-```
-Browser                   Next.js middleware           FastAPI
-  │                             │                          │
-  │── GET /any-protected-page──▶│                          │
-  │                             │── check session cookie──▶│
-  │                             │◀── 401 Unauthorized ─────│
-  │◀── redirect /login ─────────│                          │
-  │                             │                          │
-  │── POST /api/auth/login ─────────────────────────────▶  │
-  │                             │  PBKDF2-SHA256 verify     │
-  │                             │  create session (SQLite)  │
-  │◀── Set-Cookie: session=… ───────────────────────────── │
-  │                             │                          │
-  │── GET /any-protected-page──▶│                          │
-  │                             │── validate cookie ──────▶│
-  │                             │◀── 200 OK + user object ─│
-  │◀── serve page ──────────────│                          │
-```
-
-### Session management
-
-| Property | Value |
-|---|---|
-| Storage | SQLite `sessions` table (no Redis needed at pilot scale) |
-| Cookie name | `session` |
-| TTL | 3 600 s (1 hour); refreshed on each request |
-| Scope | `HttpOnly`, `SameSite=strict`, served over internal network |
-| Termination | `POST /api/auth/logout` deletes the session row |
-| First-run setup | `POST /api/auth/setup` — only callable when zero users exist; creates the first superadmin |
-
-### Roles & permissions
-
-Two built-in roles. All roles and permissions are seeded idempotently on startup from [backend/services/iam.py](backend/services/iam.py); no migration scripts needed.
-
-| Role | Display name | Who gets it |
-|---|---|---|
-| `superadmin` | Super Admin | First user created via setup wizard; additional admins promoted in the admin panel |
-| `member` | Member | All other users created by an admin |
-
-Permission matrix:
-
-| Permission | Resource | Action | superadmin | member |
-|---|---|---|---|---|
-| `perm_conv_read_own` | conversations | read own | ✅ | ✅ |
-| `perm_conv_create` | conversations | create | ✅ | ✅ |
-| `perm_doc_read` | documents | read | ✅ | ✅ |
-| `perm_doc_upload` | documents | upload | ✅ | ✅ |
-| `perm_admin_access` | admin panel | access | ✅ | ❌ |
-| `perm_audit_view` | audit log | view | ✅ | ❌ |
-
-### Document-type access control
-
-Each user can be restricted to a subset of document types (e.g., only `HR`, not `Technical`). The `user_doc_type_permissions` table stores the allow-list. If the table has no row for a user, they see all document types. The `allowed_doc_type_ids` list is embedded in every response-cache key so cross-filter cache pollution is impossible.
-
-### Rate limiting
-
-| Limit | Default | Config key |
-|---|---|---|
-| Messages per hour | 50 | `RATE_LIMIT_MSGS_PER_HOUR` |
-| Conversations per day | 10 | `RATE_LIMIT_CONVERSATIONS_PER_DAY` |
-| Enforcement | SQLite counters reset on the hour / midnight UTC | — |
-
-### Password policy
-
-| Property | Implementation |
-|---|---|
-| Hashing | `hashlib.pbkdf2_hmac` (SHA-256, 260 000 iterations) — stdlib, no bcrypt dep |
-| Salt | 32-byte random per user, stored alongside hash |
-| Change | `POST /api/auth/change-password` — requires current password |
-| Reset | Admin sets a temporary password in the admin panel; user must change on next login |
-
-### Audit log
-
-Every significant action (login, logout, user create/delete, permission change, failed auth) is appended to the `audit_log` SQLite table with `user_id`, `action`, `target`, `ip_address`, and `timestamp`. Superadmins can browse the full log in the **Admin → Audit** tab.
-
-### Conversation isolation & sharing
-
-- Each conversation belongs to exactly one `user_id`; the API enforces ownership on every read/write/delete.
-- A superadmin can view any conversation.
-- Owners can generate a share token (`POST /api/conversations/{id}/share`) that grants read-only access to a specific recipient user. The `conversation_shares` table stores `(share_id, conversation_id, owner_id, recipient_id, created_at)`.
-- Messages are stored AES-256-GCM encrypted with an Ed25519 integrity signature. Keys live in `database/keys/` (mode `0600`, never committed).
 
 ---
 
@@ -489,3 +339,23 @@ Every significant action (login, logout, user create/delete, permission change, 
 |---|---|---|
 | **Pilot** (M1 Pro / 16 GB) | Qwen3-Embedding-0.6B, Qwen3-Reranker-0.6B, Ollama qwen3:8b | CPU inference; enrichment limited to contextual headers |
 | **Production** (GPU server, on-prem) | Qwen3-Embedding-4B/8B, Qwen3-Reranker via vLLM | Same code, swap model IDs in `config.py` |
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Package management | [uv](https://docs.astral.sh/uv/) |
+| Backend | FastAPI, Uvicorn, Pydantic |
+| Orchestration | LangGraph |
+| Embedding | Qwen3-Embedding (sentence-transformers) |
+| Reranker | Qwen3-Reranker |
+| Vector store | Qdrant (local) |
+| Sparse search | BM25 with custom German decompounding |
+| LLM | Ollama (pilot) / vLLM (production) |
+| Parsing | Docling (TableFormer pipeline) |
+| Frontend | Next.js 16, React 19, assistant-ui, PDF.js |
+| Database | SQLite + AES-256-GCM encryption |
+| Observability | Langfuse (self-hosted, optional) |
+| Tests | pytest |

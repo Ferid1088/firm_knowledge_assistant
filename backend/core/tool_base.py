@@ -67,7 +67,7 @@ class Tool(ABC):
             if not importable:
                 raise ImportError(
                     f"Tool '{self.metadata.name}' requires '{dep}'. "
-                    f"Install with: pip install {base}"
+                    f"Install with: uv pip install {base}"
                 )
 
     @abstractmethod

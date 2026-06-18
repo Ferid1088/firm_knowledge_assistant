@@ -41,7 +41,7 @@ class MSGReaderTool(FileReaderTool):
         except ImportError:
             raise ImportError(
                 f"Tool '{self.metadata.name}' requires 'extract-msg>=0.28'. "
-                "Install with: pip install extract-msg"
+                "Install with: uv pip install extract-msg"
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:

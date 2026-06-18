@@ -79,8 +79,7 @@ status:
 # ── install ───────────────────────────────────────────────────────────────────
 install:
 	@echo "Installing Python dependencies..."
-	$(PYTHON) -m pip install --upgrade pip -q
-	$(PYTHON) -m pip install -r requirements.txt -q
+	uv pip install -r requirements.txt -q
 	@echo "Installing Node dependencies..."
 	cd $(FRONTEND_DIR) && npm install
 	@echo "Done."

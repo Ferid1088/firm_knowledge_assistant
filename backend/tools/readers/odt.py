@@ -41,7 +41,7 @@ class ODTReaderTool(FileReaderTool):
         except ImportError:
             raise ImportError(
                 f"Tool '{self.metadata.name}' requires 'odfpy>=1.4'. "
-                "Install with: pip install odfpy"
+                "Install with: uv pip install odfpy"
             )
 
     async def execute(self, input_data: str, **kwargs) -> RawContent:
