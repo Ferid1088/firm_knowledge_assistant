@@ -44,6 +44,7 @@ CONFIDENCE_GAP_MIN = 0.05     # gap(top1 - top2) below this adds uncertainty
 ENABLE_TRANSLATED_BM25 = True   # run BM25 pass per active language (not just DE)
 ENABLE_SIBLING_EXPANSION = False # ±1 sibling context (OFF until eval shows lift)
 ENABLE_HYDE = False              # deferred to GPU server
+ENABLE_EMBED_ENRICHMENT = True   # LLM descriptions for oversize tables + figures at ingest
 
 # ── Vector store (Qdrant, local) ───────────────────────────────────────────
 QDRANT_DIR = "database/qdrant"

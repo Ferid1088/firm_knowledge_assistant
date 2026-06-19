@@ -107,6 +107,9 @@ def _make_point(
             "table_n_rows": tbl.get("n_rows", 0),
             "table_n_cols": tbl.get("n_cols", 0),
             "table_headers": json.dumps(tbl.get("headers", [])),
+            # Enrichment metadata (figures, oversize tables)
+            "caption": chunk.metadata.get("caption", ""),
+            "embed_description": chunk.metadata.get("embed_description", ""),
         },
     )
 

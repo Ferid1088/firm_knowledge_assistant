@@ -1,24 +1,12 @@
-"""HybridChunker — A: prose_text, H: knowledge_base, I: hr_personnel.
+"""HybridChunker — default for prose_text, knowledge_base, hr_personnel, report_study, presentation.
 
-Thin wrapper around the existing structural parent-child chunker in chunk.py.
-Headings anchor sections; prose is windowed by HybridChunker (token-aware);
-tables are kept atomic.
+Delegates to chunk_document which handles all structural elements:
+tables, figures, formulas, lists, and token-windowed prose.
 """
 from __future__ import annotations
-from backend.tools.chunk import StructuralChunk, chunk_document, make_prose_chunker
+from backend.tools.chunk import StructuralChunk, chunk_document
 from backend.tools.parsers.parse_result import ParseResult
-
-_prose_chunker = None
-
-
-def _get_prose_chunker():
-    """Lazy-load and cache the shared HybridChunker instance."""
-    global _prose_chunker
-    if _prose_chunker is None:
-        _prose_chunker = make_prose_chunker()
-    return _prose_chunker
 
 
 def chunk(result: ParseResult) -> list[StructuralChunk]:
-    """Delegate to chunk_document with a lazy-loaded prose chunker."""
-    return chunk_document(result.doc, _get_prose_chunker())
+    return chunk_document(result.doc)

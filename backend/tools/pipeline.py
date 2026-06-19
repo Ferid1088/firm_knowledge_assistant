@@ -1,16 +1,17 @@
-"""Full ingest pipeline — 11 steps.
+"""Full ingest pipeline — 12 steps.
 
 0️⃣  Read                    FileReaderTool dispatched by extension (Tool Registry)
 1️⃣  Scan check              SAME for all (PDFs may be scanned)
 2️⃣  Type resolution         SAME for all (user-selection > LLM-on-sample)
 3️⃣  Parse                   DIFFERENT per type  (Docling | OCR | EML)
-4️⃣  Chunk                   DIFFERENT per type  (8 chunker strategies)
+4️⃣  Chunk                   DIFFERENT per type  (9 chunker strategies)
 5️⃣  Page sizes              SAME for all
 6️⃣  Lang detect             SAME for all
 7️⃣  BM25 build              SAME for all  (sparse vectors per language)
-8️⃣  Embed                   SAME algorithm, strategy hint per type
-9️⃣  Quality gate            SAME for all  (size + text check)
-🔟 Store                    SAME for all  (Qdrant, is_current versioning)
+8️⃣  Enrich embed text       LLM descriptions for oversize tables + figures
+9️⃣  Embed                   Qwen3-Embedding on enriched context_text
+🔟 Quality gate            SAME for all  (size + text check)
+1️⃣1️⃣ Store                  SAME for all  (Qdrant, is_current versioning)
 
 Returns IngestResult with chunk count, resolved doc_type, and scan info.
 """
@@ -76,6 +77,114 @@ def _detect_lang(text: str) -> str:
         return "de"
 
 
+# ── Embed text enrichment (description_dense + figure descriptions) ───────────
+
+def _llm_describe(prompt: str) -> str:
+    """Call the local Ollama LLM to generate a short description."""
+    import json
+    import urllib.request
+    from backend.config import OLLAMA_MODEL, OLLAMA_BASE_URL
+    payload = json.dumps({
+        "model": OLLAMA_MODEL, "prompt": prompt,
+        "stream": False, "options": {"temperature": 0, "num_predict": 150},
+    }).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        data=payload, headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read()).get("response", "").strip()
+    except Exception:
+        return ""
+
+
+def _build_enrichment_prompt(ch) -> str | None:
+    """Return an LLM prompt for a chunk that needs enrichment, or None to skip."""
+    from backend.config import OVERSIZE_EMBED_THRESHOLD
+    from backend.tools.chunk import token_len
+
+    heading = " > ".join(ch.heading_path) if ch.heading_path else ""
+
+    if ch.chunk_type == "table" and token_len(ch.context_text) > OVERSIZE_EMBED_THRESHOLD:
+        tbl = ch.metadata.get("table_structure", {})
+        headers = tbl.get("headers", [])
+        return (
+            f"Describe this table in 1-2 sentences for search indexing.\n"
+            f"Section: {heading}\n"
+            f"Caption: {ch.metadata.get('caption', '')}\n"
+            f"Headers: {', '.join(headers[:15])}\n"
+            f"Rows: {tbl.get('n_rows', '?')}\n"
+            f"First rows:\n{ch.text[:500]}\n\nDescription:"
+        )
+
+    if ch.chunk_type == "figure" and ch.metadata.get("needs_description"):
+        return (
+            f"Describe what this figure likely shows based on its context, in 1-2 sentences.\n"
+            f"Section: {heading}\n"
+            f"Caption: {ch.metadata.get('caption', '')}\n\nDescription:"
+        )
+
+    return None
+
+
+def _apply_enrichment(ch, desc: str) -> None:
+    """Apply an LLM-generated description to a chunk's embed text."""
+    heading = " > ".join(ch.heading_path) if ch.heading_path else ""
+    ch.metadata["embed_description"] = desc
+    ch.context_text = f"{heading}\n\n{desc}" if heading else desc
+    if ch.chunk_type == "figure":
+        ch.metadata["needs_description"] = False
+
+
+def _enrich_embed_texts(chunks: list, verbose: bool = False) -> None:
+    """Enrich context_text for chunks that benefit from LLM-generated descriptions.
+
+    Gated by ENABLE_EMBED_ENRICHMENT config flag. Uses ThreadPoolExecutor for
+    parallel Ollama calls. Original text is always preserved.
+    """
+    from backend.config import ENABLE_EMBED_ENRICHMENT
+    if not ENABLE_EMBED_ENRICHMENT:
+        if verbose:
+            print("            enrichment disabled (ENABLE_EMBED_ENRICHMENT=False)")
+        return
+
+    candidates = []
+    for ch in chunks:
+        prompt = _build_enrichment_prompt(ch)
+        if prompt:
+            candidates.append((ch, prompt))
+
+    if not candidates:
+        return
+
+    if verbose:
+        print(f"            enriching {len(candidates)} chunks via Ollama…")
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results: dict[int, str] = {}
+
+    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
+        futures = {pool.submit(_llm_describe, prompt): i
+                   for i, (_, prompt) in enumerate(candidates)}
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                results[idx] = future.result()
+            except Exception:
+                results[idx] = ""
+
+    enriched = 0
+    for i, (ch, _) in enumerate(candidates):
+        desc = results.get(i, "")
+        if desc:
+            _apply_enrichment(ch, desc)
+            enriched += 1
+
+    if verbose and enriched:
+        print(f"            enriched {enriched}/{len(candidates)} chunks with LLM descriptions")
+
+
 # ── Pipeline ───────────────────────────────────────────────────────────────────
 
 def ingest(
@@ -85,7 +194,7 @@ def ingest(
     doc_type_id: str | None = None,
     department_ids: list[str] | None = None,
 ) -> IngestResult:
-    """Run the full 10-step ingestion pipeline.
+    """Run the full 12-step ingestion pipeline (steps 0–11).
 
     doc_type_id: admin-defined document type ID; when None, auto-detected.
     department_ids: list of department IDs the document belongs to; stamped
@@ -100,7 +209,7 @@ def ingest(
     # installed are never registered (hard ImportError at instantiation), so
     # _get_reader() simply returns None and we skip the pre-check cleanly.
     if verbose:
-        print(f"[0/10 read]   {Path(pdf_path).suffix.lower()} via Tool Registry")
+        print(f"[0/11 read]   {Path(pdf_path).suffix.lower()} via Tool Registry")
     reader = _get_reader(pdf_path)
     if reader is None:
         if verbose:
@@ -132,7 +241,7 @@ def ingest(
 
     # ── Step 1: Scan check ────────────────────────────────────────────────────
     if verbose:
-        print(f"[1/10 scan]   {pdf_path}")
+        print(f"[1/11 scan]   {pdf_path}")
     scan = detect_scan(pdf_path)
 
     if scan.is_scanned and doc_type_id != "scanned_image":
@@ -155,15 +264,15 @@ def ingest(
         resolved_type = doc_type_id
         type_confidence = 1.0
         if verbose:
-            print(f"[2/10 type]   user-selected: {resolved_type}")
+            print(f"[2/11 type]   user-selected: {resolved_type}")
     else:
         if verbose:
-            print("[2/10 type]   auto-detecting …")
+            print("[2/11 type]   auto-detecting …")
         tr = detect_type(pdf_path)
         resolved_type = tr.doc_type
         type_confidence = tr.confidence
         if verbose:
-            print(f"[2/10 type]   → {resolved_type} (conf={type_confidence:.2f})")
+            print(f"[2/11 type]   → {resolved_type} (conf={type_confidence:.2f})")
 
     handler = get_handler(resolved_type)
     info = handler_info(resolved_type)
@@ -173,7 +282,7 @@ def ingest(
 
     # ── Step 3: Parse ─────────────────────────────────────────────────────────
     if verbose:
-        print(f"[3/10 parse]  {info['parser']}")
+        print(f"[3/11 parse]  {info['parser']}")
     try:
         parse_result = handler.parse(pdf_path)
     except Exception as e:
@@ -185,7 +294,7 @@ def ingest(
 
     # ── Step 4: Chunk ─────────────────────────────────────────────────────────
     if verbose:
-        print(f"[4/10 chunk]  {info['chunker']}")
+        print(f"[4/11 chunk]  {info['chunker']}")
     try:
         chunks = handler.chunk(parse_result)
     except Exception as e:
@@ -216,18 +325,18 @@ def ingest(
 
     # ── Step 5: Page sizes ────────────────────────────────────────────────────
     if verbose:
-        print("[5/10 sizes]  bbox normalization")
+        print("[5/11 sizes]  bbox normalization")
     sizes = page_sizes(pdf_path)
 
     # ── Step 6: Language detection ────────────────────────────────────────────
     if verbose:
-        print("[6/10 lang]   per-chunk detection")
+        print("[6/11 lang]   per-chunk detection")
     for ch in leaf_chunks:
         ch.metadata["lang"] = _detect_lang(ch.text)
 
     # ── Step 7: BM25 sparse vectors ───────────────────────────────────────────
     if verbose:
-        print("[7/10 bm25]   building sparse indices")
+        print("[7/11 bm25]   building sparse indices")
     bm25_indices: dict[str, BM25Index] = {}
     for ld in registry.all():
         lang_chunks = [c for c in leaf_chunks if c.metadata.get("lang") == ld.code]
@@ -236,17 +345,15 @@ def ingest(
             idx.add_documents([c.context_text for c in lang_chunks])
             bm25_indices[ld.code] = idx
 
-    # ── Step 8: Embed ─────────────────────────────────────────────────────────
+    # ── Step 8: Enrich embed text ───────────────────────────────────────────
     if verbose:
-        print(f"[8/10 embed]  {info['embed_strategy']} via {EMBED_MODEL_ID}")
-    embedder = load_embedder()
+        print(f"[8/11 enrich] embed text enrichment ({info['embed_strategy']})")
+    _enrich_embed_texts(leaf_chunks, verbose)
 
-    # Description-based embed: for table_structured, oversize tables get a
-    # contextual description embedded instead of the raw Markdown.
-    # (Full table is always stored and returned — only the embedded text differs.)
-    # Pilot: description generation deferred (local LLM call); raw text used.
-    if info["embed_strategy"] == "description_dense" and verbose:
-        print("            (description generation deferred on pilot — using raw text)")
+    # ── Step 9: Embed ─────────────────────────────────────────────────────────
+    if verbose:
+        print(f"[9/11 embed]  {info['embed_strategy']} via {EMBED_MODEL_ID}")
+    embedder = load_embedder()
 
     if verbose:
         for i, ch in enumerate(leaf_chunks):
@@ -257,9 +364,9 @@ def ingest(
             print(f"  [{i:03d}] {ch.chunk_type:16s} page={page} "
                   f"lang={ch.metadata.get('lang','?')} tokens={toks:4d}  {heads[:55]}")
 
-    # ── Step 9: Quality gate ──────────────────────────────────────────────────
+    # ── Step 10: Quality gate ─────────────────────────────────────────────────
     if verbose:
-        print("[9/10 gate]   filtering low-quality chunks")
+        print("[10/11 gate]  filtering low-quality chunks")
     before = len(leaf_chunks)
     leaf_chunks = [
         c for c in leaf_chunks
@@ -270,9 +377,9 @@ def ingest(
     if dropped and verbose:
         print(f"            dropped {dropped} under-threshold chunks")
 
-    # ── Step 10: Store ────────────────────────────────────────────────────────
+    # ── Step 11: Store ────────────────────────────────────────────────────────
     if verbose:
-        print("[10/10 store] → Qdrant")
+        print("[11/11 store] → Qdrant")
     collection_tuple = get_collection(persist_dir)
     n = index_chunks(collection_tuple, leaf_chunks, embedder, bm25_indices, doc_id, sizes)
     if verbose:
