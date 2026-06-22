@@ -71,6 +71,14 @@ def _startup() -> None:
     iam.init_seed_data()
 
 
+@app.on_event("startup")
+def _warm_up_models():
+    """Pre-warm embedder and reranker singletons so the first query is fast."""
+    from backend.graph.retrieval.utils import get_embedder, get_reranker
+    get_embedder()
+    get_reranker()
+
+
 def _load_langfuse_env() -> None:
     """Load .env.langfuse into os.environ if it exists (must run before config import)."""
     import os

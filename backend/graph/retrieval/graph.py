@@ -7,19 +7,25 @@ from backend.graph.retrieval.nodes import (
     prepare_query, retrieve, rerank,
     score_confidence, escalate, answer, abstain,
 )
-from backend.config import MAX_ATTEMPTS, CONFIDENCE_THRESHOLD
+from backend.config import MAX_ATTEMPTS, CONFIDENCE_THRESHOLD, CONFIDENCE_GAP_MIN
 
 
 def _route_confidence(state: RAGState) -> str:
     """Router: direct the graph to answer, escalate, or abstain.
 
-    - answer   : top-1 confidence meets the threshold — proceed to answer node.
-    - escalate : below threshold but attempts remain — widen pool and retry retrieval.
+    - answer   : top-1 confidence meets the threshold AND gap is sufficient.
+    - escalate : below threshold (or gap too narrow) and attempts remain.
     - abstain  : attempts exhausted — emit a "cannot ground" response.
     """
     conf = state.get("confidence", 0.0)
+    gap = state.get("confidence_gap", 0.0)
     attempts = state.get("attempts", 0)
+
     if conf >= CONFIDENCE_THRESHOLD:
+        # Even above the confidence threshold, a narrow gap between top-1 and
+        # top-2 indicates ambiguity -- escalate if we still have attempts left.
+        if gap < CONFIDENCE_GAP_MIN and attempts < MAX_ATTEMPTS:
+            return "escalate"
         return "answer"
     if attempts < MAX_ATTEMPTS:
         return "escalate"

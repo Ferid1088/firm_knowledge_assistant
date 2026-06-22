@@ -1,0 +1,62 @@
+[
+  {
+    "query": "Was ist das Jahresgrundentgelt nach 6 Jahren in Entgeltgruppe E7?",
+    "expected_doc_id": "TV_L",
+    "lang": "de",
+    "case_type": "factual"
+  },
+  {
+    "query": "What is the address of Keshtkar?",
+    "expected_doc_id": "19_DU_-Protokoll_Lohnsteuerbescheinigung_12_2025_-__Keshtkar__Sanaz_-__16_12",
+    "lang": "en",
+    "case_type": "cross_lingual"
+  },
+  {
+    "query": "Einigungsvertrag Artikel 1",
+    "expected_doc_id": "EinigVtr",
+    "lang": "de",
+    "case_type": "exact_code"
+  },
+  {
+    "query": "Welche Entgeltgruppen werden in der Studie zur Entgeltordnung des TV-L untersucht?",
+    "expected_doc_id": "TV_L",
+    "lang": "de",
+    "case_type": "factual"
+  },
+  {
+    "query": "Beitrittsgebiet Einigungsvertrag",
+    "expected_doc_id": "EinigVtr",
+    "lang": "de",
+    "case_type": "paraphrase"
+  },
+  {
+    "query": "What is the goal of the eg-check project?",
+    "expected_doc_id": "TV_L",
+    "lang": "en",
+    "case_type": "cross_lingual"
+  },
+  {
+    "query": "Lohnsteuerbescheinigung Dezember 2025",
+    "expected_doc_id": "19_DU_-Protokoll_Lohnsteuerbescheinigung_12_2025_-__Keshtkar__Sanaz_-__16_12",
+    "lang": "de",
+    "case_type": "factual"
+  },
+  {
+    "query": "article 3 Einigungsvertrag provisions",
+    "expected_doc_id": "EinigVtr",
+    "lang": "en",
+    "case_type": "cross_lingual"
+  },
+  {
+    "query": "Stufenaufstieg TV-L Tabelle",
+    "expected_doc_id": "TV_L",
+    "lang": "de",
+    "case_type": "factual"
+  },
+  {
+    "query": "Welche Regelungen gelten fuer die Uebergangszeit nach der Wiedervereinigung?",
+    "expected_doc_id": "EinigVtr",
+    "lang": "de",
+    "case_type": "paraphrase"
+  }
+]

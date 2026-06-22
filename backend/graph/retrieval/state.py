@@ -48,3 +48,4 @@ class RAGState(TypedDict, total=False):
 
     # Internals
     escalation_reason: str
+    reranker_failed: Optional[bool]     # True when reranker raised an exception and fell back
