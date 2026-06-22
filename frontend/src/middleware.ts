@@ -28,10 +28,14 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  const isApi = pathname.startsWith("/api/");
+
   if (status.setup_required) {
+    if (isApi) return NextResponse.json({ detail: "Setup required" }, { status: 503 });
     return NextResponse.redirect(new URL("/setup-required", req.url));
   }
   if (!status.authenticated) {
+    if (isApi) return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });
     return NextResponse.redirect(new URL("/login", req.url));
   }
   if (status.user?.must_change_password) {

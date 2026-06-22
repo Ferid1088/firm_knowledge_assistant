@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -11,20 +11,29 @@ import { ragChatAdapter, setActiveConversationId, setActiveLangCodes } from "@/l
 import type { ArtifactChunk, ConversationDetail, ConversationSummary, User } from "@/lib/types";
 import { PdfViewer } from "@/components/PdfViewer";
 import { ConversationSidebar } from "@/components/ConversationSidebar";
+import { AppShell } from "@/components/AppShell";
 import { getMe } from "@/lib/auth";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { IconButton } from "@/components/ui/IconButton";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { ConfidenceMeter } from "@/components/korpus/ConfidenceMeter";
 import {
-  AlertTriangleIcon,
-  ChevronRightIcon,
-  CloseIcon,
-  FileTextIcon,
-  HelpCircleIcon,
-  LangfuseIcon,
-  MessageSquareIcon,
-  PinIcon,
-  ShieldCheckIcon,
-  QuoteIcon,
-  SendIcon,
-} from "@/components/icons";
+  Search,
+  ArrowUp,
+  FileText,
+  ChevronRight,
+  Quote,
+  ShieldCheck,
+  CircleCheck,
+  TriangleAlert,
+  ThumbsUp,
+  Copy,
+  Lock,
+  MessageSquare,
+  X,
+  ExternalLink,
+} from "lucide-react";
 
 type CustomMeta = {
   answer_lang?: string;
@@ -34,10 +43,71 @@ type CustomMeta = {
   artifact_chunks?: ArtifactChunk[];
 };
 
-function ConfidenceBadge({ confidence }: { confidence: number }) {
-  const pct = Math.round(confidence * 100);
-  const cls = confidence >= 0.5 ? "confidence-high" : "confidence-low";
-  return <span className={`confidence-badge ${cls}`}>Confidence {pct}%</span>;
+function ConfidenceBadgeInline({ confidence }: { confidence: number }) {
+  const level = confidence >= 0.7 ? "high" : confidence >= 0.4 ? "moderate" : "low";
+  return <ConfidenceMeter level={level} />;
+}
+
+function CitationCard({
+  chunk,
+  index,
+  onSelect,
+}: {
+  chunk: ArtifactChunk;
+  index: number;
+  onSelect: (chunk: ArtifactChunk) => void;
+}) {
+  const headingPath = chunk.address.heading_path.filter(Boolean);
+  const typeColor = "var(--accent-500)";
+
+  return (
+    <div
+      onClick={() => onSelect(chunk)}
+      style={{
+        display: "flex", gap: 10, padding: "11px 12px",
+        background: "var(--surface-card)",
+        border: "1px solid var(--border-default)",
+        borderLeft: `2px solid ${typeColor}`,
+        borderRadius: "var(--r-md)", cursor: "pointer",
+        transition: "background var(--dur-fast) var(--ease-out)",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-hover)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-card)")}
+    >
+      <span style={{
+        flex: "none", width: 20, height: 20, borderRadius: "var(--r-xs)",
+        background: "var(--accent-tint)", color: "var(--accent-300)",
+        fontFamily: "var(--font-mono)", fontSize: "var(--fs-2xs)", fontWeight: 600,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+      }}>{index}</span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+          <FileText size={13} color="var(--text-muted)" />
+          <span style={{
+            fontFamily: "var(--font-sans)", fontSize: "var(--fs-sm)", fontWeight: 600,
+            color: "var(--text-strong)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}>
+            {headingPath.length > 0 ? headingPath.join(" > ") : chunk.address.doc_id}
+          </span>
+          {chunk.address.page != null && (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-2xs)", color: "var(--text-muted)", flex: "none" }}>
+              p. {chunk.address.page + 1}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--verify-300)", fontSize: "var(--fs-2xs)", fontWeight: 600, flex: "none" }}>
+            <CircleCheck size={13} color="var(--verify-500)" /> Source
+          </span>
+        </div>
+        {chunk.quote && (
+          <blockquote style={{
+            margin: 0, paddingLeft: 9, borderLeft: "2px solid var(--border-strong)",
+            fontSize: "var(--fs-sm)", lineHeight: "var(--lh-snug)", color: "var(--text-body)",
+          }}>&ldquo;{chunk.quote}&rdquo;</blockquote>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function Citations({
@@ -48,35 +118,12 @@ function Citations({
   onSelect: (chunk: ArtifactChunk) => void;
 }) {
   if (chunks.length === 0) return null;
-
   return (
-    <div className="citations">
-      {chunks.map((c, i) => {
-        const headingPath = c.address.heading_path.filter(Boolean);
-        return (
-          <button key={`${c.chunk_id}-${i}`} className="citation-item" onClick={() => onSelect(c)}>
-            <span className="citation-badge">{c.source}</span>
-            <span className="citation-body">
-              <span className="citation-meta">
-                <FileTextIcon />
-                <span className="citation-heading-crumb">
-                  {(headingPath.length > 0 ? headingPath : [c.address.doc_id]).map((part, idx) => (
-                    <span key={idx} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-                      {idx > 0 && <ChevronRightIcon />}
-                      <span>{part}</span>
-                    </span>
-                  ))}
-                </span>
-                {c.address.page != null && <span className="citation-page">p. {c.address.page}</span>}
-              </span>
-              <span className="citation-quote">
-                <QuoteIcon />
-                <span>{c.quote}</span>
-              </span>
-            </span>
-          </button>
-        );
-      })}
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+      <span className="k-eyebrow">{chunks.length} sources</span>
+      {chunks.map((c, i) => (
+        <CitationCard key={`${c.chunk_id}-${i}`} chunk={c} index={i + 1} onSelect={onSelect} />
+      ))}
     </div>
   );
 }
@@ -90,28 +137,36 @@ function HistoryMessages({
 }) {
   if (messages.length === 0) return null;
   return (
-    <div className="history-viewport">
+    <div style={{
+      padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 14,
+      borderBottom: "1px solid var(--border-subtle)", maxHeight: "40vh", overflowY: "auto",
+    }}>
       {messages.map((m) => (
-        <div key={m.id} className={`message-row ${m.role}`}>
-          <div className="message-meta">
-            <span className="message-role">{m.role === "assistant" ? "Assistant" : "You"}</span>
-            {m.role === "assistant" && m.integrity_verified && (
-              <span className="message-tag success">
-                <ShieldCheckIcon /> Verified
-              </span>
-            )}
-          </div>
-          <div className="message-bubble">
-            {m.text}
-            {!m.integrity_verified && (
-              <div className="integrity-warning">
-                <AlertTriangleIcon /> Integrity check failed
+        <div key={m.id} style={{ display: "flex", gap: 11 }}>
+          <span style={{
+            flex: "none", width: 24, height: 24, borderRadius: "var(--r-sm)",
+            background: m.role === "assistant" ? "var(--surface-raised)" : "var(--accent-900)",
+            border: "1px solid var(--border-default)",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            color: m.role === "assistant" ? "var(--text-secondary)" : "var(--accent-300)",
+            fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 600,
+          }}>
+            {m.role === "assistant" ? "K" : "U"}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{
+              margin: 0, fontSize: "var(--fs-body)", lineHeight: "var(--lh-relaxed)",
+              color: "var(--text-body)",
+            }}>{m.text}</p>
+            {m.role === "assistant" && !m.integrity_verified && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, color: "var(--warn-300)", fontSize: "var(--fs-xs)", fontWeight: 600 }}>
+                <TriangleAlert size={12} color="var(--warn-500)" /> Integrity check failed
               </div>
             )}
+            {m.role === "assistant" && (m.artifact_chunks?.length > 0) && (
+              <Citations chunks={m.artifact_chunks} onSelect={onSelectChunk} />
+            )}
           </div>
-          {m.role === "assistant" && (m.artifact_chunks?.length || m.claims?.length) > 0 && (
-            <Citations chunks={m.artifact_chunks} onSelect={onSelectChunk} />
-          )}
         </div>
       ))}
     </div>
@@ -121,9 +176,11 @@ function HistoryMessages({
 function Thread({
   onSelectChunk,
   onFirstMessage,
+  hasHistory = false,
 }: {
   onSelectChunk: (chunk: ArtifactChunk) => void;
   onFirstMessage?: (text: string) => void;
+  hasHistory?: boolean;
 }) {
   const messages = useThread((t) => t.messages);
   const isRunning = useThread((t) => t.isRunning);
@@ -138,7 +195,6 @@ function Thread({
   function send() {
     const text = input.trim();
     if (!text || isRunning) return;
-    // Auto-title: fire on the very first user message
     const userMessages = messages.filter((m) => m.role === "user");
     if (userMessages.length === 0) onFirstMessage?.(text);
     runtime.append(text);
@@ -147,141 +203,112 @@ function Thread({
 
   return (
     <>
-      <div className="thread-viewport" ref={viewportRef}>
-        {messages.map((m) => {
-          const text = m.content
-            .filter((p): p is { type: "text"; text: string } => p.type === "text")
-            .map((p) => p.text)
-            .join("");
-          const meta = (m.metadata?.custom ?? {}) as CustomMeta;
+      <div ref={viewportRef} style={{ flex: 1, overflowY: "auto", padding: "22px 0" }}>
+        <div style={{ maxWidth: "var(--content-max)", margin: "0 auto", padding: "0 26px" }}>
+          {messages.length === 0 && !isRunning && !hasHistory && (
+            <div style={{ marginTop: 56, textAlign: "center" }}>
+              <img src="/korpus-mark.svg" width={46} height={46} alt="" style={{ opacity: 0.9 }} />
+              <h1 style={{ margin: "16px 0 6px", fontSize: "var(--fs-h1)", fontWeight: 600, color: "var(--text-strong)", letterSpacing: "-0.01em" }}>
+                Ask your documents anything
+              </h1>
+              <p style={{ margin: "0 auto", maxWidth: 440, fontSize: "var(--fs-body)", color: "var(--text-secondary)", lineHeight: "var(--lh-normal)" }}>
+                Every answer is grounded in your indexed corpus and cited to the exact page. Nothing leaves the building.
+              </p>
+            </div>
+          )}
+          {messages.map((m) => {
+            const text = m.content
+              .filter((p): p is { type: "text"; text: string } => p.type === "text")
+              .map((p) => p.text)
+              .join("");
+            const meta = (m.metadata?.custom ?? {}) as CustomMeta;
 
-          return (
-            <div key={m.id} className={`message-row ${m.role}`}>
-              <div className="message-meta">
-                <span className="message-role">{m.role === "assistant" ? "Assistant" : "You"}</span>
-                {m.role === "assistant" && meta.confidence !== undefined && (
-                  <span className="message-tag">Evidence-based answer</span>
-                )}
+            return (
+              <div key={m.id} style={{ display: "flex", gap: 11, marginBottom: 20 }}>
+                <span style={{
+                  flex: "none", width: 24, height: 24, borderRadius: "var(--r-sm)",
+                  background: m.role === "assistant" ? "var(--surface-raised)" : "var(--accent-900)",
+                  border: "1px solid var(--border-default)",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  overflow: "hidden",
+                }}>
+                  {m.role === "assistant"
+                    ? <img src="/korpus-mark.svg" width={16} height={16} alt="" />
+                    : <span style={{ color: "var(--accent-300)", fontFamily: "var(--font-sans)", fontSize: 10, fontWeight: 600 }}>U</span>
+                  }
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{
+                    margin: 0, fontSize: "var(--fs-body)", lineHeight: "var(--lh-relaxed)",
+                    color: m.role === "user" ? "var(--text-strong)" : "var(--text-body)",
+                    fontWeight: m.role === "user" ? 500 : 400,
+                  }}>{text}</p>
+                  {m.role === "assistant" && meta.confidence !== undefined && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border-subtle)" }}>
+                      <ConfidenceBadgeInline confidence={meta.confidence} />
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "var(--fs-2xs)", color: "var(--verify-300)" }}>
+                        <CircleCheck size={12} color="var(--verify-500)" /> Integrity verified
+                      </span>
+                      <span style={{ flex: 1 }} />
+                      <Tooltip content="Helpful"><IconButton label="Helpful" size="sm" icon={<ThumbsUp size={15} />} /></Tooltip>
+                      <Tooltip content="Copy"><IconButton label="Copy" size="sm" icon={<Copy size={15} />} /></Tooltip>
+                    </div>
+                  )}
+                  {m.role === "assistant" && (meta.artifact_chunks?.length ?? 0) > 0 && (
+                    <Citations chunks={meta.artifact_chunks ?? []} onSelect={onSelectChunk} />
+                  )}
+                </div>
               </div>
-              <div className="message-bubble">{text}</div>
-              {m.role === "assistant" && meta.confidence !== undefined && (
-                <ConfidenceBadge confidence={meta.confidence} />
-              )}
-              {m.role === "assistant" && (meta.artifact_chunks?.length ?? 0) > 0 && (
-                <Citations
-                  chunks={meta.artifact_chunks ?? []}
-                  onSelect={onSelectChunk}
-                />
-              )}
+            );
+          })}
+          {isRunning && (
+            <div style={{ display: "flex", gap: 11 }}>
+              <span style={{
+                flex: "none", width: 24, height: 24, borderRadius: "var(--r-sm)",
+                background: "var(--surface-raised)", border: "1px solid var(--border-default)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <img src="/korpus-mark.svg" width={16} height={16} alt="" />
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 5 }}>
+                <span style={{ display: "inline-block", width: 7, height: 15, background: "var(--accent-400)", animation: "k-caret .9s steps(1) infinite" }} />
+              </div>
             </div>
-          );
-        })}
-        {isRunning && (
-          <div className="message-row assistant typing">
-            <div className="message-bubble">
-              <span className="typing-dot" />
-              <span className="typing-dot" />
-              <span className="typing-dot" />
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-      <div className="composer">
-        <input
-          value={input}
-          placeholder="Frage stellen / Ask a question…"
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") send();
-          }}
-          disabled={isRunning}
-        />
-        <button onClick={send} disabled={isRunning || !input.trim()} aria-label="Senden / Send">
-          <SendIcon />
-        </button>
+
+      <div style={{ flex: "none", padding: "12px 26px 18px", borderTop: "1px solid var(--border-subtle)" }}>
+        <div style={{ maxWidth: "var(--content-max)", margin: "0 auto" }}>
+          <div style={{
+            display: "flex", alignItems: "flex-end", gap: 9,
+            padding: "8px 8px 8px 14px",
+            background: "var(--surface-input)", border: "1px solid var(--border-default)", borderRadius: "var(--r-md)",
+          }}>
+            <Search size={17} color="var(--text-muted)" style={{ marginBottom: 8 }} />
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              placeholder="Ask a question in German or English…"
+              rows={1}
+              disabled={isRunning}
+              style={{
+                flex: 1, resize: "none", border: "none", outline: "none", background: "transparent",
+                color: "var(--text-strong)", fontFamily: "var(--font-sans)", fontSize: "var(--fs-body)",
+                lineHeight: "var(--lh-normal)", padding: "6px 0", maxHeight: 120,
+              }}
+            />
+            <Button onClick={send} disabled={isRunning || !input.trim()} iconRight={<ArrowUp size={16} color="currentColor" />}>
+              Ask
+            </Button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}>
+            <Lock size={11} color="var(--text-muted)" /> Answers are grounded only in your indexed documents. Citations are verified against source text.
+          </div>
+        </div>
       </div>
     </>
-  );
-}
-
-function HelpOverlay({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="help-overlay" role="dialog" aria-modal="true" aria-label="Help guide" onClick={onClose}>
-      <div className="help-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="help-modal-header">
-          <span className="help-modal-title">
-            <HelpCircleIcon /> How to use this workspace
-          </span>
-          <button className="help-modal-close" onClick={onClose} aria-label="Close help">
-            <CloseIcon />
-          </button>
-        </div>
-
-        <div className="help-modal-body">
-          <div className="help-section">
-            <h3>Getting started</h3>
-            <ol className="help-steps">
-              <li>Upload a PDF using the <strong>Upload</strong> button in the left sidebar.</li>
-              <li>Click <strong>New conversation</strong> to open a chat session.</li>
-              <li>Type your question in German or English — the system auto-detects the language.</li>
-              <li>Click a citation card below the answer to jump to the exact page in the PDF viewer.</li>
-            </ol>
-          </div>
-
-          <div className="help-section">
-            <h3>Asking good questions</h3>
-            <ul className="help-list">
-              <li>Be specific: <em>"What is the maximum load for bolt M12 in table 3?"</em></li>
-              <li>Use exact part numbers or clause references for precise results.</li>
-              <li>Multi-part questions work: <em>"Compare section 4.1 and 4.2 on safety requirements."</em></li>
-              <li>If the answer shows low confidence, try rephrasing or adding more context.</li>
-            </ul>
-          </div>
-
-          <div className="help-section">
-            <h3>Understanding the answer</h3>
-            <div className="help-legend">
-              <div className="help-legend-item">
-                <span className="confidence-badge confidence-high" style={{ pointerEvents: "none" }}>Confidence 87%</span>
-                <span>High confidence — answer well-supported by documents</span>
-              </div>
-              <div className="help-legend-item">
-                <span className="confidence-badge confidence-low" style={{ pointerEvents: "none" }}>Confidence 40%</span>
-                <span>Low confidence — answer may be incomplete or uncertain</span>
-              </div>
-              <div className="help-legend-item">
-                <span className="message-tag success" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, padding: "3px 8px", borderRadius: 999 }}><ShieldCheckIcon /> Verified</span>
-                <span>All cited quotes were verified against the source text</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="help-section">
-            <h3>PDF viewer</h3>
-            <ul className="help-list">
-              <li>Click any citation card to jump to the exact page and highlight the passage.</li>
-              <li>Drag the column dividers to resize the sidebar, chat, and viewer panels.</li>
-              <li>The viewer shows coloured overlay rectangles over cited text.</li>
-            </ul>
-          </div>
-
-          <div className="help-section">
-            <h3>Conversations & sharing</h3>
-            <ul className="help-list">
-              <li>Each conversation is private to you by default.</li>
-              <li>Use the <strong>share icon</strong> on a conversation to grant another user access.</li>
-              <li>Rename a conversation by clicking the <strong>pencil icon</strong>.</li>
-              <li>Archive or delete conversations from the sidebar action buttons.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="help-modal-footer">
-          <span className="help-footer-note">All processing is local and air-gapped — no data leaves the network.</span>
-          <button className="admin-btn admin-btn-primary" onClick={onClose}>Got it</button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -298,30 +325,19 @@ function ChatPane({
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <HistoryMessages messages={history} onSelectChunk={onSelectChunk} />
-      <Thread onSelectChunk={onSelectChunk} onFirstMessage={onFirstMessage} />
+      <Thread onSelectChunk={onSelectChunk} onFirstMessage={onFirstMessage} hasHistory={history.length > 0} />
     </AssistantRuntimeProvider>
   );
 }
 
 export default function Home() {
-  const rootRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<ArtifactChunk | null>(null);
   const [jumpToken, setJumpToken] = useState(0);
-
-  const [sidebarWidth, setSidebarWidth] = useState(312);
-  const [chatWidth, setChatWidth] = useState(760);
-  const [dragging, setDragging] = useState<null | "sidebar" | "chat">(null);
-
-  const [showHelp, setShowHelp] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationIdState] = useState<string | null>(null);
   const [activeConversation, setActiveConversation] = useState<ConversationDetail | null>(null);
-
-  const RESIZER_WIDTH = 18;
-  const MIN_SIDEBAR_WIDTH = 260;
-  const MIN_CHAT_WIDTH = 420;
-  const MIN_VIEWER_WIDTH = 360;
+  const [showPdf, setShowPdf] = useState(false);
 
   useEffect(() => {
     fetch("/api/config")
@@ -378,139 +394,109 @@ export default function Home() {
       .catch(() => setActiveConversation(null));
   }, [activeConversationId]);
 
-  useEffect(() => {
-    if (!dragging) return;
-
-    function clamp(value: number, min: number, max: number) {
-      return Math.min(Math.max(value, min), max);
-    }
-
-    function onMouseMove(event: MouseEvent) {
-      const root = rootRef.current;
-      if (!root) return;
-
-      const rect = root.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const maxSidebar = rect.width - MIN_CHAT_WIDTH - MIN_VIEWER_WIDTH - RESIZER_WIDTH * 2;
-
-      if (dragging === "sidebar") {
-        const nextSidebarWidth = clamp(x - RESIZER_WIDTH / 2, MIN_SIDEBAR_WIDTH, maxSidebar);
-        const maxChatWidth = rect.width - nextSidebarWidth - MIN_VIEWER_WIDTH - RESIZER_WIDTH * 2;
-        setSidebarWidth(nextSidebarWidth);
-        setChatWidth((prev) => clamp(prev, MIN_CHAT_WIDTH, maxChatWidth));
-        return;
-      }
-
-      const maxChatWidth = rect.width - sidebarWidth - MIN_VIEWER_WIDTH - RESIZER_WIDTH * 2;
-      const nextChatWidth = clamp(x - sidebarWidth - RESIZER_WIDTH - RESIZER_WIDTH / 2, MIN_CHAT_WIDTH, maxChatWidth);
-      setChatWidth(nextChatWidth);
-    }
-
-    function onMouseUp() {
-      setDragging(null);
-    }
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, [dragging, sidebarWidth]);
+  function selectChunk(chunk: ArtifactChunk) {
+    setSelected(chunk);
+    setJumpToken((t) => t + 1);
+    setShowPdf(true);
+  }
 
   return (
-    <div id="app-root" ref={rootRef} className={dragging ? "is-resizing" : undefined}>
-      <ConversationSidebar
-        currentUser={currentUser}
-        conversations={conversations}
-        activeConversationId={activeConversationId}
-        onSelectConversation={setActiveConversationIdState}
-        onConversationsChanged={refreshConversations}
-        style={{ width: sidebarWidth, flex: `0 0 ${sidebarWidth}px` } as CSSProperties}
-      />
-      <div
-        className={`column-resizer ${dragging === "sidebar" ? "active" : ""}`}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        onMouseDown={() => setDragging("sidebar")}
-      />
-      <div className="chat-pane" style={{ width: chatWidth, flex: `0 0 ${chatWidth}px` } as CSSProperties}>
-        <div className="app-header">
-          <div className="app-header-main">
-            <span className="app-header-title">
-              <span className="app-header-icon">
-                <MessageSquareIcon />
+    <AppShell title="Ask the corpus" flush>
+      <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
+        {/* Conversation sidebar */}
+        <ConversationSidebar
+          currentUser={currentUser}
+          conversations={conversations}
+          activeConversationId={activeConversationId}
+          onSelectConversation={setActiveConversationIdState}
+          onConversationsChanged={refreshConversations}
+          style={{
+            width: 280, flex: "0 0 280px",
+            borderRight: "1px solid var(--border-subtle)",
+            background: "var(--bg-panel)",
+            height: "100%",
+          }}
+        />
+
+        {/* Chat column */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {/* Sub-header */}
+          <div style={{
+            height: 46, flex: "none", display: "flex", alignItems: "center", gap: 10,
+            padding: "0 14px", borderBottom: "1px solid var(--border-subtle)",
+          }}>
+            <span style={{
+              fontSize: "var(--fs-sm)", fontWeight: 600,
+              color: "var(--text-strong)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}>
+              {activeConversation?.title ?? "New conversation"}
+            </span>
+            <Badge tone="verify" icon={<ShieldCheck size={11} color="var(--verify-500)" />}>Secure</Badge>
+            <div style={{ flex: 1 }} />
+            {showPdf && selected && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fs-2xs)", color: "var(--text-muted)" }}>
+                source · p. {selected.address.page != null ? selected.address.page + 1 : "—"}
               </span>
-              <span className="app-header-copy">
-                <strong>{activeConversation?.title ?? "Document intelligence workspace"}</strong>
-                <span>
-                  {activeConversationId
-                    ? "Chat with cited answers and open supporting evidence instantly."
-                    : "Select a conversation to explore your document knowledge base."}
-                </span>
-              </span>
-            </span>
+            )}
           </div>
-          <div className="app-header-stats">
-            <a
-              href="http://localhost:3001"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="langfuse-btn"
-              title="Open Langfuse observability"
-            >
-              <LangfuseIcon />
-            </a>
-            <button
-              className="help-btn"
-              onClick={() => setShowHelp(true)}
-              title="Help & guide"
-              aria-label="Open help guide"
-            >
-              <HelpCircleIcon />
-            </button>
-            <span className="header-chip">
-              <ShieldCheckIcon /> Secure
-            </span>
-            <span className="header-chip subtle">
-              <PinIcon /> {selected ? `Page ${selected.address.page != null ? selected.address.page + 1 : "source"}` : "No citation selected"}
-            </span>
-          </div>
-        </div>
-        {activeConversationId ? (
-          <ChatPane
-            key={activeConversationId}
-            history={activeConversation?.messages ?? []}
-            onSelectChunk={(chunk) => {
-              setSelected(chunk);
-              setJumpToken((t) => t + 1);
-            }}
-            onFirstMessage={autoTitleConversation}
-          />
-        ) : (
-          <div className="conversation-empty">
-            <div className="conversation-empty-hero">
-              <span className="conversation-empty-badge">Modern workspace</span>
-              <MessageSquareIcon />
-              <h2>Your answers, evidence, and documents in one place.</h2>
-              <p>Create or select a conversation to start chatting with your knowledge base.</p>
+
+          {activeConversationId ? (
+            <ChatPane
+              key={activeConversationId}
+              history={activeConversation?.messages ?? []}
+              onSelectChunk={selectChunk}
+              onFirstMessage={autoTitleConversation}
+            />
+          ) : (
+            <div style={{
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              gap: 10, color: "var(--text-muted)", fontSize: "var(--fs-sm)", textAlign: "center", padding: "40px 24px",
+            }}>
+              <img src="/korpus-mark.svg" width={46} height={46} alt="" style={{ opacity: 0.7 }} />
+              <h2 style={{ margin: "12px 0 4px", fontSize: "var(--fs-h2)", fontWeight: 600, color: "var(--text-strong)" }}>
+                Ask your documents anything
+              </h2>
+              <p style={{ margin: 0, maxWidth: 400, color: "var(--text-secondary)", lineHeight: "var(--lh-normal)" }}>
+                Create or select a conversation to start chatting with your knowledge base.
+              </p>
             </div>
-          </div>
+          )}
+        </div>
+
+        {/* PDF viewer pane */}
+        {showPdf && selected && (
+          <aside style={{
+            width: 440, flex: "0 0 440px",
+            display: "flex", flexDirection: "column", minHeight: 0,
+            borderLeft: "1px solid var(--border-subtle)", background: "var(--slate-925)",
+          }}>
+            <div style={{
+              height: 46, flex: "none", display: "flex", alignItems: "center", gap: 9,
+              padding: "0 12px", borderBottom: "1px solid var(--border-subtle)",
+            }}>
+              <FileText size={15} color="var(--text-secondary)" />
+              <span style={{
+                flex: 1, minWidth: 0, fontFamily: "var(--font-mono)", fontSize: "var(--fs-xs)",
+                color: "var(--text-strong)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              }}>
+                {selected.address.doc_id}
+              </span>
+              <Badge tone="verify" icon={<CircleCheck size={11} />}>Verified</Badge>
+              <Tooltip content="Open original">
+                <IconButton label="Open original" size="sm" icon={<ExternalLink size={15} />} />
+              </Tooltip>
+              <IconButton label="Close source" size="sm" onClick={() => setShowPdf(false)} icon={<X size={16} />} />
+            </div>
+            <div style={{ flex: 1, overflow: "auto" }}>
+              <PdfViewer
+                docId={selected.address.doc_id ?? null}
+                highlight={selected}
+                jumpToken={jumpToken}
+              />
+            </div>
+          </aside>
         )}
       </div>
-      <div
-        className={`column-resizer ${dragging === "chat" ? "active" : ""}`}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize chat panel"
-        onMouseDown={() => setDragging("chat")}
-      />
-      <div className="viewer-pane">
-        <PdfViewer docId={selected?.address.doc_id ?? null} highlight={selected} jumpToken={jumpToken} />
-      </div>
-      {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
-    </div>
+    </AppShell>
   );
 }

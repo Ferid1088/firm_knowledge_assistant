@@ -1,0 +1,9 @@
+<svg width="168" height="40" viewBox="0 0 168 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Korpus">
+  <rect x="2" y="2" width="36" height="36" rx="8" fill="#11161d" stroke="#2c3542" stroke-width="1.5"></rect>
+  <rect x="9" y="25" width="22" height="3.2" rx="1.6" fill="#4e5969"></rect>
+  <rect x="9" y="18.5" width="22" height="3.2" rx="1.6" fill="#6b7585"></rect>
+  <rect x="9" y="11" width="22" height="4" rx="2" fill="#3b82f6"></rect>
+  <circle cx="29.5" cy="13" r="6.5" fill="#11161d"></circle>
+  <path d="M26.4 13.1l2 2 3.2-3.6" stroke="#2faf6a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+  <text x="50" y="27" font-family="&#39;IBM Plex Sans&#39;, sans-serif" font-size="22" font-weight="600" letter-spacing="-0.01em" fill="#e3e7ec">Korpus</text>
+</svg>
