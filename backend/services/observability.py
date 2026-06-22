@@ -74,15 +74,18 @@ def trace_run(
     user_id: str | None = None,
     conversation_id: str | None = None,
     structural_types: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> Any:
     """Run the RAG graph and emit a Langfuse trace if enabled."""
-    from backend.graph.graph import run as graph_run
+    from backend.graph.retrieval import run as graph_run
 
     client = _get_client()
 
     if client is None:
         return graph_run(question, active_lang_codes, history, allowed_doc_type_ids,
-                         structural_types=structural_types)
+                         structural_types=structural_types,
+                         date_from=date_from, date_to=date_to)
 
     trace = client.trace(
         name="rag_query",
@@ -95,7 +98,8 @@ def trace_run(
     try:
         span = trace.span(name="graph.run", input={"question": question})
         result = graph_run(question, active_lang_codes, history, allowed_doc_type_ids,
-                           structural_types=structural_types)
+                           structural_types=structural_types,
+                           date_from=date_from, date_to=date_to)
         span.end(output={
             "answer": result.get("answer", ""),
             "confidence": result.get("confidence", 0),

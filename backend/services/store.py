@@ -17,6 +17,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, SparseVectorParams, SparseIndexParams,
     PointStruct, SparseVector, Filter, FieldCondition, MatchValue, MatchAny,
+    Range,
 )
 
 from backend.config import (
@@ -244,6 +245,8 @@ def search(
     current_only: bool = True,
     allowed_doc_type_ids: list[str] | None = None,  # None = all types allowed
     structural_types: list[str] | None = None,       # e.g. ["table", "list"] — None = all
+    date_from: str | None = None,   # ISO date, inclusive lower bound
+    date_to: str | None = None,     # ISO date, inclusive upper bound
 ) -> list[dict]:
     """Dense + sparse BM25 hybrid search with RRF fusion; returns payload dicts."""
     from backend.adapters.embedder import embed_query
@@ -267,6 +270,17 @@ def search(
             return []
         must_conditions.append(
             FieldCondition(key="structural_type", match=MatchAny(any=structural_types))
+        )
+    # Date range filter: chunk's date range [date_min, date_max] must overlap
+    # the query range [date_from, date_to].  Overlap condition:
+    #   chunk.date_max >= query.date_from  AND  chunk.date_min <= query.date_to
+    if date_from:
+        must_conditions.append(
+            FieldCondition(key="date_max", range=Range(gte=date_from))
+        )
+    if date_to:
+        must_conditions.append(
+            FieldCondition(key="date_min", range=Range(lte=date_to))
         )
     current_filter = Filter(must=must_conditions) if must_conditions else None
 
