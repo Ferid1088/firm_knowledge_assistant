@@ -33,12 +33,25 @@ def test_route_after_ocr_give_up_not_worthwhile():
     assert _route_after_ocr(state) == "give_up"
 
 
-def test_escalate_switches_engine():
+def test_escalate_switches_engine(monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/tesseract" if name == "tesseract" else None)
     from backend.graph.ocr_subgraph import escalate_node
     state = {"engine": "easyocr", "images_scale": 2.0}
     out = escalate_node(state)
     assert out["engine"] == "tesseract"
     assert out["images_scale"] == 3.0  # 2.0 * 1.5
+
+
+def test_escalate_skips_tesseract_when_not_installed(monkeypatch):
+    """When tesseract is not on PATH, keep easyocr and just bump resolution."""
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    from backend.graph.ocr_subgraph import escalate_node
+    state = {"engine": "easyocr", "images_scale": 2.0}
+    out = escalate_node(state)
+    assert out["engine"] == "easyocr"
+    assert out["images_scale"] == 3.0  # still bumped
 
 
 def test_flag_for_review():

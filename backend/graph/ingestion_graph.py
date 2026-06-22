@@ -11,6 +11,7 @@ All existing parsers, chunkers, and store logic are reused as-is.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -160,7 +161,7 @@ def ocr_branch_node(state: IngestionState) -> IngestionState:
 # ── Chunk ───────────────────────────────────────────────────────────────────
 
 def chunk_node(state: IngestionState) -> IngestionState:
-    from backend.tools.type_registry import get_handler
+    from backend.tools.type_registry import get_handler, handler_info
     from backend.tools.chunk import classify_table_role
 
     resolved_type = state["resolved_type"]
@@ -188,9 +189,11 @@ def chunk_node(state: IngestionState) -> IngestionState:
     doc_type_id = state.get("doc_type_id") or state.get("resolved_type")
     table_schemas = handler.table_schemas
 
+    info = handler_info(resolved_type)
     for ch in chunks:
         ch.metadata.setdefault("doc_type", resolved_type)
         ch.metadata.setdefault("doc_type_id", doc_type_id)
+        ch.metadata.setdefault("embed_strategy", info["embed_strategy"])
         ch.metadata["department_ids"] = dept_ids
         ch.metadata["structural_type"] = ch.chunk_type
         if ch.chunk_type == "table":
@@ -218,6 +221,15 @@ def lang_detect_node(state: IngestionState) -> IngestionState:
 # ── BM25 sparse vectors ────────────────────────────────────────────────────
 
 def bm25_node(state: IngestionState) -> IngestionState:
+    """Build per-document BM25 sparse vectors for the current batch.
+
+    NOTE: These indices are scoped to the current document's chunks — they
+    produce the sparse vectors stored per-point in Qdrant (used by
+    index_chunks in store.py).  The corpus-level BM25 statistics are rebuilt
+    separately via rebuild_bm25_indices() called after ingestion completes
+    in the API layer.  This is intentional: IDF statistics over the full
+    corpus cannot be computed inside a single-document ingestion run.
+    """
     from backend.services.sparse import BM25Index
     from backend.services.language import registry
 
@@ -309,7 +321,11 @@ def build_ingestion_graph():
     )
     g.add_edge("text_parse", "chunk")
     g.add_edge("ocr_branch", "chunk")
-    g.add_edge("chunk", "lang_detect")
+    g.add_conditional_edges(
+        "chunk",
+        lambda s: "end" if s.get("error") else "continue",
+        {"end": END, "continue": "lang_detect"},
+    )
     g.add_edge("lang_detect", "bm25")
     g.add_edge("bm25", "enrich")
     g.add_edge("enrich", "quality_gate")
@@ -321,6 +337,7 @@ def build_ingestion_graph():
 # ── Public API ──────────────────────────────────────────────────────────────
 
 _compiled_graph = None
+_graph_lock = threading.Lock()
 
 
 def run_ingest(
@@ -333,7 +350,9 @@ def run_ingest(
     """Run the ingestion graph and return the final state."""
     global _compiled_graph
     if _compiled_graph is None:
-        _compiled_graph = build_ingestion_graph()
+        with _graph_lock:
+            if _compiled_graph is None:
+                _compiled_graph = build_ingestion_graph()
 
     init: IngestionState = {
         "source_path": str(Path(source_path).resolve()),
