@@ -1,38 +1,24 @@
-"""Full ingest pipeline — 12 steps.
+"""Ingest pipeline — thin wrapper around the LangGraph ingestion graph.
 
-0️⃣  Read                    FileReaderTool dispatched by extension (Tool Registry)
-1️⃣  Scan check              SAME for all (PDFs may be scanned)
-2️⃣  Type resolution         SAME for all (user-selection > LLM-on-sample)
-3️⃣  Parse                   DIFFERENT per type  (Docling | OCR | EML)
-4️⃣  Chunk                   DIFFERENT per type  (9 chunker strategies)
-5️⃣  Page sizes              SAME for all
-6️⃣  Lang detect             SAME for all
-7️⃣  BM25 build              SAME for all  (sparse vectors per language)
-8️⃣  Enrich embed text       LLM descriptions for oversize tables + figures
-9️⃣  Embed                   Qwen3-Embedding on enriched context_text
-🔟 Quality gate            SAME for all  (size + text check)
-1️⃣1️⃣ Store                  SAME for all  (Qdrant, is_current versioning)
+The actual pipeline logic (triage, parse, chunk, embed, store) lives in
+backend/graph/ingestion_graph.py.  This module keeps the backward-compatible
+``ingest()`` entry-point, the ``IngestResult`` dataclass, and helpers that
+the graph nodes import (_detect_lang, _enrich_embed_texts, _get_reader).
 
-Returns IngestResult with chunk count, resolved doc_type, and scan info.
+``rebuild_bm25_indices()`` is also here — the API still calls it directly.
 """
 from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from backend.config import QDRANT_DIR, EMBED_MODEL_ID
-from backend.tools.parse import store_original
+from backend.config import QDRANT_DIR
 from backend.tools.readers import (  # noqa: F401 — side-effect: registers tools
     PDFReaderTool, DOCXReaderTool, XLSXReaderTool, CSVReaderTool,
     TextReaderTool, EMLReaderTool, ImageReaderTool,
 )
-from backend.tools.scan_detector import detect_scan
-from backend.tools.type_detector import detect_type
-from backend.tools.type_registry import get_handler, handler_info
-from backend.services.citations import page_sizes, chunk_address
-from backend.adapters.embedder import load_embedder, token_count
 from backend.services.sparse import BM25Index
-from backend.services.store import get_collection, index_chunks
+from backend.services.store import get_collection
 from backend.services.language import registry
 
 
@@ -194,206 +180,32 @@ def ingest(
     doc_type_id: str | None = None,
     department_ids: list[str] | None = None,
 ) -> IngestResult:
-    """Run the full 12-step ingestion pipeline (steps 0–11).
+    """Run the LangGraph ingestion pipeline and return an IngestResult.
 
-    doc_type_id: admin-defined document type ID; when None, auto-detected.
-    department_ids: list of department IDs the document belongs to; stamped
-                    onto every chunk's metadata and Qdrant payload.
+    This is the backward-compatible wrapper.  The actual pipeline logic
+    is in backend/graph/ingestion_graph.py.
     """
-    pdf_path = str(Path(pdf_path).resolve())
-    doc_id = Path(pdf_path).stem
+    from backend.graph.ingestion_graph import run_ingest
 
-    # ── Step 0: Reader dispatch (Tool Registry) ───────────────────────────────
-    # Pre-check: if a reader is registered for this extension, run it to detect
-    # corruption early and log file metadata. Readers whose dependencies are not
-    # installed are never registered (hard ImportError at instantiation), so
-    # _get_reader() simply returns None and we skip the pre-check cleanly.
-    if verbose:
-        print(f"[0/11 read]   {Path(pdf_path).suffix.lower()} via Tool Registry")
-    reader = _get_reader(pdf_path)
-    if reader is None:
-        if verbose:
-            print(f"            no reader registered for '{Path(pdf_path).suffix}' — skipping pre-check")
-    else:
-        try:
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_closed():
-                    raise RuntimeError("closed")
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            raw = loop.run_until_complete(reader.execute(pdf_path))
-            if raw.is_corrupted:
-                raise RuntimeError(
-                    f"File could not be read ({reader.metadata.name}): "
-                    + "; ".join(raw.warnings)
-                )
-            if verbose:
-                print(f"            reader={reader.metadata.name}  "
-                      f"size={raw.file_size}B  confidence={raw.extraction_confidence:.2f}")
-        except RuntimeError:
-            raise  # genuine file corruption — propagate
-        except Exception as pre_err:
-            if verbose:
-                print(f"            [WARN] reader pre-check failed: {pre_err}")
+    state = run_ingest(
+        source_path=pdf_path,
+        persist_dir=persist_dir,
+        verbose=verbose,
+        doc_type_id=doc_type_id,
+        department_ids=department_ids,
+    )
 
-    # ── Step 1: Scan check ────────────────────────────────────────────────────
-    if verbose:
-        print(f"[1/11 scan]   {pdf_path}")
-    scan = detect_scan(pdf_path)
-
-    if scan.is_scanned and doc_type_id != "scanned_image":
-        print(
-            f"[WARN]  PDF appears SCANNED ({scan.scanned_ratio:.0%} empty pages). "
-            f"Quarantined. Empty pages: {scan.empty_pages}"
-        )
-        return IngestResult(
-            n_chunks=0,
-            doc_type=doc_type_id or "scanned_image",
-            doc_type_confidence=0.0,
-            is_scanned=True,
-            empty_pages=scan.empty_pages,
-        )
-    if scan.empty_pages:
-        print(f"[WARN]  pages without text layer (excluded): {scan.empty_pages}")
-
-    # ── Step 2: Type resolution ───────────────────────────────────────────────
-    if doc_type_id:
-        resolved_type = doc_type_id
-        type_confidence = 1.0
-        if verbose:
-            print(f"[2/11 type]   user-selected: {resolved_type}")
-    else:
-        if verbose:
-            print("[2/11 type]   auto-detecting …")
-        tr = detect_type(pdf_path)
-        resolved_type = tr.doc_type
-        type_confidence = tr.confidence
-        if verbose:
-            print(f"[2/11 type]   → {resolved_type} (conf={type_confidence:.2f})")
-
-    handler = get_handler(resolved_type)
-    info = handler_info(resolved_type)
-    if verbose:
-        print(f"            parser={info['parser']}  chunker={info['chunker']}  "
-              f"embed={info['embed_strategy']}")
-
-    # ── Step 3: Parse ─────────────────────────────────────────────────────────
-    if verbose:
-        print(f"[3/11 parse]  {info['parser']}")
-    try:
-        parse_result = handler.parse(pdf_path)
-    except Exception as e:
-        raise RuntimeError(
-            f"Parser '{info['parser']}' failed for doc_type='{resolved_type}': {e}"
-        ) from e
-
-    store_original(pdf_path, doc_id)
-
-    # ── Step 4: Chunk ─────────────────────────────────────────────────────────
-    if verbose:
-        print(f"[4/11 chunk]  {info['chunker']}")
-    try:
-        chunks = handler.chunk(parse_result)
-    except Exception as e:
-        raise RuntimeError(
-            f"Chunker '{info['chunker']}' failed for doc_type='{resolved_type}': {e}"
-        ) from e
-
-    leaf_chunks = [c for c in chunks if c.is_leaf]
-
-    # Stamp semantic_type (doc_type), structural_type, embed_strategy, department_ids
-    _dept_ids = department_ids or []
-    from backend.tools.chunk import classify_table_role
-    _table_schemas = handler.table_schemas
-    for ch in chunks:
-        ch.metadata.setdefault("doc_type", resolved_type)
-        ch.metadata.setdefault("doc_type_id", doc_type_id or resolved_type)
-        ch.metadata.setdefault("embed_strategy", info["embed_strategy"])
-        ch.metadata["department_ids"] = _dept_ids
-        # structural_type mirrors chunk_type for dual-label querying per adaptive spec
-        ch.metadata["structural_type"] = ch.chunk_type
-        # classify table role using doc-type-specific keyword schemas
-        if ch.chunk_type == "table":
-            headers = ch.metadata.get("table_structure", {}).get("headers", [])
-            ch.metadata["table_role"] = classify_table_role(headers, _table_schemas)
-
-    if verbose:
-        print(f"            {len(chunks)} total chunks ({len(leaf_chunks)} leaves)")
-
-    # ── Step 5: Page sizes ────────────────────────────────────────────────────
-    if verbose:
-        print("[5/11 sizes]  bbox normalization")
-    sizes = page_sizes(pdf_path)
-
-    # ── Step 6: Language detection ────────────────────────────────────────────
-    if verbose:
-        print("[6/11 lang]   per-chunk detection")
-    for ch in leaf_chunks:
-        ch.metadata["lang"] = _detect_lang(ch.text)
-
-    # ── Step 7: BM25 sparse vectors ───────────────────────────────────────────
-    if verbose:
-        print("[7/11 bm25]   building sparse indices")
-    bm25_indices: dict[str, BM25Index] = {}
-    for ld in registry.all():
-        lang_chunks = [c for c in leaf_chunks if c.metadata.get("lang") == ld.code]
-        if lang_chunks:
-            idx = BM25Index(lang=ld.code)
-            idx.add_documents([c.context_text for c in lang_chunks])
-            bm25_indices[ld.code] = idx
-
-    # ── Step 8: Enrich embed text ───────────────────────────────────────────
-    if verbose:
-        print(f"[8/11 enrich] embed text enrichment ({info['embed_strategy']})")
-    _enrich_embed_texts(leaf_chunks, verbose)
-
-    # ── Step 9: Embed ─────────────────────────────────────────────────────────
-    if verbose:
-        print(f"[9/11 embed]  {info['embed_strategy']} via {EMBED_MODEL_ID}")
-    embedder = load_embedder()
-
-    if verbose:
-        for i, ch in enumerate(leaf_chunks):
-            toks = token_count(embedder, ch.context_text)
-            heads = " > ".join(ch.heading_path) if ch.heading_path else "(no heading)"
-            addr = chunk_address(ch, doc_id, sizes)
-            page = addr.get("page") or "?"
-            print(f"  [{i:03d}] {ch.chunk_type:16s} page={page} "
-                  f"lang={ch.metadata.get('lang','?')} tokens={toks:4d}  {heads[:55]}")
-
-    # ── Step 10: Quality gate ─────────────────────────────────────────────────
-    if verbose:
-        print("[10/11 gate]  filtering low-quality chunks")
-    before = len(leaf_chunks)
-    leaf_chunks = [
-        c for c in leaf_chunks
-        if len(c.text.strip()) >= 10          # minimum text
-        and c.context_text.strip()             # must have embedding text
-    ]
-    dropped = before - len(leaf_chunks)
-    if dropped and verbose:
-        print(f"            dropped {dropped} under-threshold chunks")
-
-    # ── Step 11: Store ────────────────────────────────────────────────────────
-    if verbose:
-        print("[11/11 store] → Qdrant")
-    collection_tuple = get_collection(persist_dir)
-    n = index_chunks(collection_tuple, leaf_chunks, embedder, bm25_indices, doc_id, sizes)
-    if verbose:
-        print(f"            indexed {n} chunks "
-              f"(doc_type={resolved_type}, chunker={info['chunker']}) → {persist_dir}")
+    if state.get("error"):
+        raise RuntimeError(state["error"])
 
     return IngestResult(
-        n_chunks=n,
-        doc_type=resolved_type,
-        doc_type_confidence=type_confidence,
-        is_scanned=False,
-        empty_pages=scan.empty_pages,
-        parser_name=info["parser"],
-        chunker_name=info["chunker"],
+        n_chunks=state.get("n_chunks", 0),
+        doc_type=state.get("resolved_type", doc_type_id or "unknown"),
+        doc_type_confidence=state.get("type_confidence", 0.0),
+        is_scanned=state.get("is_scanned_result", False),
+        empty_pages=state.get("empty_pages", []),
+        parser_name=state.get("parser_name"),
+        chunker_name=state.get("chunker_name"),
     )
 
 
