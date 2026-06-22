@@ -43,13 +43,19 @@ class Qwen3Reranker:
         return f"<Instruct>: {_DEFAULT_INSTRUCTION}\n<Query>: {query}\n<Document>: {doc}"
 
     @torch.no_grad()
-    def predict(self, pairs: list[tuple[str, str]], batch_size: int = RERANKER_BATCH_SIZE) -> list[float]:
-        """Score (query, document) pairs; returns probabilities in [0, 1] order-matched to pairs."""
+    def predict(self, pairs: list[tuple[str, str]], batch_size: int = RERANKER_BATCH_SIZE, max_length: int | None = None) -> list[float]:
+        """Score (query, document) pairs; returns probabilities in [0, 1] order-matched to pairs.
+
+        Args:
+            max_length: override the instance max_length for this call (D1 escalation).
+                        Clamped to EMBED_MAX_SEQ (model hard limit).
+        """
+        effective_max_length = min(max_length, EMBED_MAX_SEQ) if max_length is not None else self.max_length
         scores: list[float] = []
         for i in range(0, len(pairs), batch_size):
             batch = pairs[i:i + batch_size]
             texts = [self._format(q, d) for q, d in batch]
-            budget = self.max_length - len(self._prefix_ids) - len(self._suffix_ids)
+            budget = effective_max_length - len(self._prefix_ids) - len(self._suffix_ids)
             inputs = self.tokenizer(
                 texts, padding=False, truncation="longest_first",
                 return_attention_mask=False, max_length=budget,

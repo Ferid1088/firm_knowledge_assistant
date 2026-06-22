@@ -27,6 +27,10 @@ RERANKER_DEDUP_BY_PARENT = True          # deduplicate hits by (doc_id, parent_i
 RERANKER_NORMALIZE_METHOD = "percentile" # "percentile" | "minmax" | "none"
 RERANKER_MIN_SCORE = 0.1                 # drop hits below this normalized score (keep >= 1)
 RERANKER_EXACT_MATCH_BOOST = 0.1         # boost for hits containing exact-match query tokens
+RERANKER_MAX_LENGTH_CAP = 4096           # never exceed this on escalation (D1)
+
+# ── Progressive escalation caps (D1) ─────────────────────────────────────
+RETRIEVE_DEEP_POOL_CAP = 200            # never exceed this on escalation (D1)
 
 # ── Chunking ───────────────────────────────────────────────────────────────
 CHUNK_MAX_TOKENS = 512    # prose windowing only; atomic leaves (table/rec) kept whole
@@ -49,6 +53,7 @@ CONFIDENCE_GAP_MIN = 0.05     # gap(top1 - top2) below this adds uncertainty
 # ── Feature flags ──────────────────────────────────────────────────────────
 ENABLE_TRANSLATED_BM25 = True   # run BM25 pass per active language (not just DE)
 ENABLE_SIBLING_EXPANSION = False # ±1 sibling context (OFF until eval shows lift)
+EXPANSION_TOKEN_BUDGET = 1024    # max tokens of expanded context per answer (D3)
 ENABLE_HYDE = False              # deferred to GPU server
 ENABLE_EMBED_ENRICHMENT = True   # LLM descriptions for oversize tables + figures at ingest
 

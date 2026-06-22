@@ -15,7 +15,8 @@ def retrieve(state: RAGState) -> RAGState:
     active_codes = state.get("active_lang_codes", ["de"])
     translated = state.get("translated_queries", {})
     bm25_indices = get_bm25_indices()
-    k = RETRIEVE_DEEP_POOL
+    # D1: read progressive pool size from state (set by escalate node), fallback to config
+    k = state.get("retrieve_pool_size") or RETRIEVE_DEEP_POOL
 
     all_hits: list[dict] = []
     seen_ids: set[str] = set()

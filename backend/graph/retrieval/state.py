@@ -46,6 +46,16 @@ class RAGState(TypedDict, total=False):
     date_filter_from: Optional[str]   # ISO date, inclusive lower bound
     date_filter_to: Optional[str]     # ISO date, inclusive upper bound
 
+    # Progressive escalation (D1)
+    reranker_max_length: Optional[int]  # current reranker window; doubles on escalation
+    retrieve_pool_size: Optional[int]   # current pool size; doubles on escalation
+
+    # Reranker score cache (D2) — persists across escalation loops
+    reranker_cache: Optional[dict]      # {chunk_id: float} — scores from previous iterations
+
+    # Parent-child expansion (D3)
+    expanded_context: Optional[list[dict]]  # reranked hits with parent heading prepended
+
     # Internals
     escalation_reason: str
     reranker_failed: Optional[bool]     # True when reranker raised an exception and fell back

@@ -8,6 +8,8 @@ Enhanced with:
   C1. Percentile / min-max normalization of reranker scores
   C2. Drop low-score chunks (keep at least 1)
   C4. Exact-match boost for §-refs, part numbers, quoted strings
+  D1. Progressive reranker max_length from state (doubles on escalation)
+  D2. Reranker score cache — skip re-scoring already-seen chunk_ids
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from collections import defaultdict
 from backend.config import (
     RERANKER_DEDUP_BY_PARENT,
     RERANKER_EXACT_MATCH_BOOST,
+    RERANKER_MAX_LENGTH,
     RERANKER_MIN_SCORE,
     RERANKER_NORMALIZE_METHOD,
     RERANKER_TOP_K,
@@ -171,6 +174,12 @@ def rerank(state: RAGState) -> RAGState:
     query_lang = state.get("query_lang", "de")
     translated_queries = state.get("translated_queries", {})
 
+    # D1: read progressive reranker max_length from state (set by escalate node)
+    reranker_max_length = state.get("reranker_max_length") or RERANKER_MAX_LENGTH
+
+    # D2: load reranker score cache from previous iterations
+    reranker_cache: dict[str, float] = dict(state.get("reranker_cache") or {})
+
     # C4: exact-match boost (applied to retrieval scores before dedup)
     if RERANKER_EXACT_MATCH_BOOST:
         pool = _apply_exact_match_boost(pool, question, RERANKER_EXACT_MATCH_BOOST)
@@ -190,31 +199,63 @@ def rerank(state: RAGState) -> RAGState:
     # B1 + B2: build enhanced text per hit
     enhanced_texts = [_build_enhanced_text(h) for h in pool]
 
-    # B3: cross-lingual reranking — score with original query first
-    pairs = [(question, et) for et in enhanced_texts]
-    try:
-        scores = reranker.predict(pairs)
+    # D2: split pool into cached (already scored) and uncached (need scoring)
+    cached_indices: list[int] = []
+    uncached_indices: list[int] = []
+    for i, h in enumerate(pool):
+        cid = h.get("chunk_id", "")
+        if cid and cid in reranker_cache:
+            cached_indices.append(i)
+        else:
+            uncached_indices.append(i)
 
-        # B3: for hits whose language differs from query_lang and a translated
-        # query exists for that language, score again and take max
-        cross_lingual_indices: list[int] = []
-        cross_lingual_pairs: list[tuple[str, str]] = []
-        for i, h in enumerate(pool):
-            hit_lang = h.get("lang", "de")
-            if hit_lang != query_lang and hit_lang in translated_queries:
-                cross_lingual_indices.append(i)
-                cross_lingual_pairs.append(
-                    (translated_queries[hit_lang], enhanced_texts[i])
+    if cached_indices:
+        log.debug("D2 cache: %d hits from cache, %d to score", len(cached_indices), len(uncached_indices))
+
+    # B3: cross-lingual reranking — score uncached hits with original query first
+    # Initialize scores array for ALL pool items
+    scores: list[float] = [0.0] * len(pool)
+
+    # Fill in cached scores
+    for i in cached_indices:
+        cid = pool[i].get("chunk_id", "")
+        scores[i] = reranker_cache[cid]
+
+    try:
+        # Score only uncached hits
+        if uncached_indices:
+            uncached_pairs = [(question, enhanced_texts[i]) for i in uncached_indices]
+            uncached_scores = reranker.predict(uncached_pairs, max_length=reranker_max_length)
+            for idx, raw_score in zip(uncached_indices, uncached_scores):
+                scores[idx] = raw_score
+
+            # B3: for uncached hits whose language differs from query_lang and a
+            # translated query exists for that language, score again and take max
+            cross_lingual_indices: list[int] = []
+            cross_lingual_pairs: list[tuple[str, str]] = []
+            for i in uncached_indices:
+                h = pool[i]
+                hit_lang = h.get("lang", "de")
+                if hit_lang != query_lang and hit_lang in translated_queries:
+                    cross_lingual_indices.append(i)
+                    cross_lingual_pairs.append(
+                        (translated_queries[hit_lang], enhanced_texts[i])
+                    )
+
+            if cross_lingual_pairs:
+                alt_scores = reranker.predict(cross_lingual_pairs, max_length=reranker_max_length)
+                for idx, alt_score in zip(cross_lingual_indices, alt_scores):
+                    scores[idx] = max(scores[idx], alt_score)
+                log.debug(
+                    "Cross-lingual reranking: %d hits re-scored with translated queries",
+                    len(cross_lingual_pairs),
                 )
 
-        if cross_lingual_pairs:
-            alt_scores = reranker.predict(cross_lingual_pairs)
-            for idx, alt_score in zip(cross_lingual_indices, alt_scores):
-                scores[idx] = max(scores[idx], alt_score)
-            log.debug(
-                "Cross-lingual reranking: %d hits re-scored with translated queries",
-                len(cross_lingual_pairs),
-            )
+        # D2: update cache with all scores (cached + newly computed)
+        for i, h in enumerate(pool):
+            cid = h.get("chunk_id", "")
+            if cid:
+                reranker_cache[cid] = scores[i]
 
         # C1: normalize scores
         raw_scores = list(scores)
@@ -236,14 +277,21 @@ def rerank(state: RAGState) -> RAGState:
                 )
 
         log.info(
-            "Reranked %d -> %d hits (method=%s, min_score=%.2f, dedup=%s)",
+            "Reranked %d -> %d hits (method=%s, min_score=%.2f, dedup=%s, max_length=%d, cached=%d)",
             len(state.get("candidate_pool", [])),
             len(reranked),
             RERANKER_NORMALIZE_METHOD,
             RERANKER_MIN_SCORE,
             RERANKER_DEDUP_BY_PARENT,
+            reranker_max_length,
+            len(cached_indices),
         )
-        return {**state, "reranked": reranked, "reranker_failed": False}
+        return {
+            **state,
+            "reranked": reranked,
+            "reranker_failed": False,
+            "reranker_cache": reranker_cache,
+        }
 
     except Exception:
         log.warning(
@@ -253,4 +301,4 @@ def rerank(state: RAGState) -> RAGState:
             exc_info=True,
         )
         reranked = pool[:RERANKER_TOP_K]
-        return {**state, "reranked": reranked, "reranker_failed": True}
+        return {**state, "reranked": reranked, "reranker_failed": True, "reranker_cache": reranker_cache}

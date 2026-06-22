@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, END
 
 from backend.graph.retrieval.state import RAGState
 from backend.graph.retrieval.nodes import (
-    prepare_query, retrieve, rerank,
+    prepare_query, retrieve, rerank, expand_context,
     score_confidence, escalate, answer, abstain,
 )
 from backend.config import MAX_ATTEMPTS, CONFIDENCE_THRESHOLD, CONFIDENCE_GAP_MIN
@@ -36,7 +36,7 @@ def build_graph():
     """Assemble and compile the LangGraph RAG pipeline.
 
     Topology:
-        prepare_query -> retrieve -> rerank -> score_confidence
+        prepare_query -> retrieve -> rerank -> expand_context -> score_confidence
             -> answer    (confidence OK)
             -> escalate  -> retrieve  (loop, bounded by MAX_ATTEMPTS)
             -> abstain   (attempts exhausted)
@@ -46,6 +46,7 @@ def build_graph():
     g.add_node("prepare_query", prepare_query)
     g.add_node("retrieve", retrieve)
     g.add_node("rerank", rerank)
+    g.add_node("expand_context", expand_context)
     g.add_node("score_confidence", score_confidence)
     g.add_node("escalate", escalate)
     g.add_node("answer", answer)
@@ -55,7 +56,8 @@ def build_graph():
 
     g.add_edge("prepare_query", "retrieve")
     g.add_edge("retrieve", "rerank")
-    g.add_edge("rerank", "score_confidence")
+    g.add_edge("rerank", "expand_context")
+    g.add_edge("expand_context", "score_confidence")
 
     g.add_conditional_edges(
         "score_confidence",
