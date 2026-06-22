@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from backend.config import EMBED_MODEL_ID, EMBED_QUERY_INSTRUCTION, EMBED_MAX_SEQ
+from backend.config import EMBED_MODEL_ID, EMBED_QUERY_INSTRUCTION, EMBED_MAX_SEQ, EMBED_DEVICE, EMBED_BATCH_SIZE
 
 _EMBEDDER: SentenceTransformer | None = None
 
@@ -21,7 +21,7 @@ def load_embedder(model_id: str = EMBED_MODEL_ID) -> SentenceTransformer:
     """
     global _EMBEDDER
     if _EMBEDDER is None or _EMBEDDER.model_card_data.base_model != model_id:
-        _EMBEDDER = SentenceTransformer(model_id, trust_remote_code=True, device="cpu")
+        _EMBEDDER = SentenceTransformer(model_id, trust_remote_code=True, device=EMBED_DEVICE)
     return _EMBEDDER
 
 
@@ -40,7 +40,7 @@ def embed_texts(embedder: SentenceTransformer, texts: list[str]) -> np.ndarray:
             if len(ids) > EMBED_MAX_SEQ:
                 t = tokenizer.decode(ids[:EMBED_MAX_SEQ], skip_special_tokens=True)
         safe_texts.append(t)
-    return embedder.encode(safe_texts, normalize_embeddings=True, show_progress_bar=False, batch_size=8)
+    return embedder.encode(safe_texts, normalize_embeddings=True, show_progress_bar=False, batch_size=EMBED_BATCH_SIZE)
 
 
 def embed_query(embedder: SentenceTransformer, query: str) -> np.ndarray:

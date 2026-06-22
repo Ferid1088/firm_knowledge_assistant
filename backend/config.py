@@ -153,3 +153,28 @@ CACHE_ENABLED        = True
 CACHE_TTL_SECONDS    = 3600   # seconds until a cached entry expires; 0 = no expiry
 CACHE_MAX_ENTRIES    = 500    # LRU eviction kicks in above this count
 CACHE_MIN_CONFIDENCE = 0.55   # only cache answers at or above this confidence score
+
+# ── Type detection ───────────────────────────────────────────────────────────
+TYPE_DETECTION_CONFIDENCE = 0.80
+TYPE_DETECTION_PAGE_SAMPLE_CHARS = 1500
+TYPE_DETECTION_PROMPT_MAX_CHARS = 4000
+
+# ── Language detection ───────────────────────────────────────────────────────
+LANG_DETECTION_CONFIDENCE = 0.80
+
+# ── LLM enrichment ──────────────────────────────────────────────────────────
+OLLAMA_DESCRIPTION_NUM_PREDICT = 150
+OLLAMA_REQUEST_TIMEOUT = 60
+
+# ── Text layer detection ────────────────────────────────────────────────────
+TEXT_LAYER_MIN_CHARS = 100
+
+# ── Embedding & reranking inference ──────────────────────────────────────────
+EMBED_BATCH_SIZE = 8
+EMBED_DEVICE = "cpu"
+RERANKER_BATCH_SIZE = 4
+RERANKER_MAX_LENGTH = 1024
+RERANKER_DEVICE = "cpu"
+
+# ── API ──────────────────────────────────────────────────────────────────────
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000"]

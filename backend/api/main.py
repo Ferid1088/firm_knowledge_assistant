@@ -39,7 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from backend.config import ORIGINALS_DIR, AVAILABLE_LANGUAGES, OLLAMA_MODEL, RETRIEVE_K
+from backend.config import ORIGINALS_DIR, AVAILABLE_LANGUAGES, OLLAMA_MODEL, RETRIEVE_K, CORS_ALLOWED_ORIGINS
 from backend.api.routes import auth as auth_routes, admin as admin_routes
 from backend.database import init_db
 from backend.services import iam, conversations, sharing, rate_limit
@@ -51,7 +51,7 @@ app = FastAPI(title="Local RAG API")
 # Pilot: Next.js dev server runs on localhost:3000. Internal-only origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],
     allow_credentials=True,

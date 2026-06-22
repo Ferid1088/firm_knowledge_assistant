@@ -16,7 +16,7 @@ asks the local LLM (via Ollama) to classify the document into one of 10 types.
   J  correspondence    — email, letter, memo
 
 Returns a TypeDetectionResult with doc_type and confidence (0..1).
-Falls back to "prose_text" when confidence < CONFIDENCE_THRESHOLD.
+Falls back to "prose_text" when confidence < TYPE_DETECTION_CONFIDENCE.
 """
 from __future__ import annotations
 import json
@@ -25,10 +25,13 @@ from dataclasses import dataclass
 
 import pypdfium2 as pdfium
 
-from backend.config import OLLAMA_MODEL, OLLAMA_BASE_URL
+from backend.config import (
+    OLLAMA_MODEL, OLLAMA_BASE_URL,
+    TYPE_DETECTION_CONFIDENCE, TYPE_DETECTION_PAGE_SAMPLE_CHARS,
+    TYPE_DETECTION_PROMPT_MAX_CHARS, OLLAMA_REQUEST_TIMEOUT,
+)
 
 SAMPLE_PAGES = 3         # pages to sample (first, middle, last — deduplicated)
-CONFIDENCE_THRESHOLD = 0.80  # fall back to prose_text below this
 
 VALID_TYPES = {
     "prose_text",
@@ -102,7 +105,7 @@ def _sample_text(pdf_path: str) -> tuple[str, list[int]]:
     for i in unique:
         text = pdf[i].get_textpage().get_text_range().strip()
         if text:
-            parts.append(f"[Page {i + 1}]\n{text[:1500]}")
+            parts.append(f"[Page {i + 1}]\n{text[:TYPE_DETECTION_PAGE_SAMPLE_CHARS]}")
 
     pdf.close()
     return "\n\n".join(parts), [i + 1 for i in unique]
@@ -124,7 +127,7 @@ def _call_llm(prompt: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=OLLAMA_REQUEST_TIMEOUT) as resp:
         data = json.loads(resp.read())
     return data.get("response", "")
 
@@ -154,7 +157,7 @@ def detect_type(pdf_path: str) -> TypeDetectionResult:
             sampled_pages=sampled_pages,
         )
 
-    prompt = _PROMPT.format(sample=sample[:4000])
+    prompt = _PROMPT.format(sample=sample[:TYPE_DETECTION_PROMPT_MAX_CHARS])
     try:
         raw = _call_llm(prompt)
         doc_type, confidence = _parse_llm_response(raw)
@@ -162,7 +165,7 @@ def detect_type(pdf_path: str) -> TypeDetectionResult:
         doc_type, confidence = "prose_text", 0.0
 
     # Fall back to prose_text when confidence is too low
-    if confidence < CONFIDENCE_THRESHOLD:
+    if confidence < TYPE_DETECTION_CONFIDENCE:
         doc_type = "prose_text"
 
     return TypeDetectionResult(

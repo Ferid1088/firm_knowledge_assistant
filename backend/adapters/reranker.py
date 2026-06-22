@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from backend.config import RERANKER_MODEL_ID, EMBED_MAX_SEQ
+from backend.config import RERANKER_MODEL_ID, EMBED_MAX_SEQ, RERANKER_MAX_LENGTH, RERANKER_BATCH_SIZE, RERANKER_DEVICE
 
 _PREFIX = (
     "<|im_start|>system\nJudge whether the Document meets the requirements based on "
@@ -27,7 +27,7 @@ class Qwen3Reranker:
     Loaded once and reused across requests via the graph utils singleton.
     """
 
-    def __init__(self, model_id: str = RERANKER_MODEL_ID, device: str = "cpu", max_length: int = 1024):
+    def __init__(self, model_id: str = RERANKER_MODEL_ID, device: str = RERANKER_DEVICE, max_length: int = RERANKER_MAX_LENGTH):
         """Load the causal-LM weights and cache the 'yes'/'no' token IDs for scoring."""
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, padding_side="left")
         self.model = AutoModelForCausalLM.from_pretrained(model_id).to(device).eval()
@@ -43,7 +43,7 @@ class Qwen3Reranker:
         return f"<Instruct>: {_DEFAULT_INSTRUCTION}\n<Query>: {query}\n<Document>: {doc}"
 
     @torch.no_grad()
-    def predict(self, pairs: list[tuple[str, str]], batch_size: int = 4) -> list[float]:
+    def predict(self, pairs: list[tuple[str, str]], batch_size: int = RERANKER_BATCH_SIZE) -> list[float]:
         """Score (query, document) pairs; returns probabilities in [0, 1] order-matched to pairs."""
         scores: list[float] = []
         for i in range(0, len(pairs), batch_size):

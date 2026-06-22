@@ -69,17 +69,17 @@ def _llm_describe(prompt: str) -> str:
     """Call the local Ollama LLM to generate a short description."""
     import json
     import urllib.request
-    from backend.config import OLLAMA_MODEL, OLLAMA_BASE_URL
+    from backend.config import OLLAMA_MODEL, OLLAMA_BASE_URL, OLLAMA_DESCRIPTION_NUM_PREDICT, OLLAMA_REQUEST_TIMEOUT
     payload = json.dumps({
         "model": OLLAMA_MODEL, "prompt": prompt,
-        "stream": False, "options": {"temperature": 0, "num_predict": 150},
+        "stream": False, "options": {"temperature": 0, "num_predict": OLLAMA_DESCRIPTION_NUM_PREDICT},
     }).encode()
     req = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/generate",
         data=payload, headers={"Content-Type": "application/json"}, method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=OLLAMA_REQUEST_TIMEOUT) as resp:
             return json.loads(resp.read()).get("response", "").strip()
     except Exception:
         return ""
@@ -185,7 +185,7 @@ def ingest(
     This is the backward-compatible wrapper.  The actual pipeline logic
     is in backend/graph/ingestion_graph.py.
     """
-    from backend.graph.ingestion_graph import run_ingest
+    from backend.graph.ingestion import run_ingest
 
     state = run_ingest(
         source_path=pdf_path,
