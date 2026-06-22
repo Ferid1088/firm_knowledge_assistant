@@ -3,6 +3,7 @@
 # Keep this file under version control; never make it writable by the running service.
 
 import os
+from pathlib import Path
 
 # ── Offline / security flags ───────────────────────────────────────────────
 # Set BEFORE any HuggingFace import. Models must already be cached locally.
@@ -45,6 +46,22 @@ ENABLE_TRANSLATED_BM25 = True   # run BM25 pass per active language (not just DE
 ENABLE_SIBLING_EXPANSION = False # ±1 sibling context (OFF until eval shows lift)
 ENABLE_HYDE = False              # deferred to GPU server
 ENABLE_EMBED_ENRICHMENT = True   # LLM descriptions for oversize tables + figures at ingest
+
+# ── Ingestion graph ────────────────────────────────────────────────────────────
+ENABLE_VLM_ENRICHMENT = False          # True on GPU server with Qwen3-VL; False on M1 pilot
+VLM_BASE_URL = "http://localhost:8000/v1"
+VLM_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
+INGEST_IMAGE_DIR = str(Path("data") / "ingested_images")
+
+# ── OCR subgraph ──────────────────────────────────────────────────────────────
+OCR_MAX_ATTEMPTS = 2
+OCR_DEFAULT_ENGINE = "easyocr"
+OCR_LOW_DENSITY_CHARS_PER_PAGE = 40
+OCR_RETRY_WORTHWHILE_RATIO = 0.15
+OCR_SMALL_DOC_PAGE_COUNT = 5
+OCR_BASE_IMAGES_SCALE = 2.0
+OCR_ESCALATED_SCALE_CAP = 4.0
+OCR_LANGS = ["de", "en"]
 
 # ── Vector store (Qdrant, local) ───────────────────────────────────────────
 QDRANT_DIR = "database/qdrant"
