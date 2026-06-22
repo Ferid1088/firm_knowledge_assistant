@@ -23,6 +23,10 @@ EMBED_QUERY_INSTRUCTION = "Instruct: Given a query, retrieve the most relevant d
 # ── Reranker ───────────────────────────────────────────────────────────────
 RERANKER_MODEL_ID = "Qwen/Qwen3-Reranker-0.6B"
 RERANKER_TOP_K = 8        # re-rank this many candidates -> return top RETRIEVE_K
+RERANKER_DEDUP_BY_PARENT = True          # deduplicate hits by (doc_id, parent_id) before scoring
+RERANKER_NORMALIZE_METHOD = "percentile" # "percentile" | "minmax" | "none"
+RERANKER_MIN_SCORE = 0.1                 # drop hits below this normalized score (keep >= 1)
+RERANKER_EXACT_MATCH_BOOST = 0.1         # boost for hits containing exact-match query tokens
 
 # ── Chunking ───────────────────────────────────────────────────────────────
 CHUNK_MAX_TOKENS = 512    # prose windowing only; atomic leaves (table/rec) kept whole
