@@ -514,7 +514,7 @@ def system_stats() -> dict:
     qdrant_points = 0
     total_docs = 0
     try:
-        from backend.graph.utils import get_collection
+        from backend.graph.retrieval.utils import get_collection
         client, collection_name = get_collection()
         info = client.get_collection(collection_name=collection_name)
         qdrant_points = info.points_count or 0

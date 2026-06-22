@@ -226,8 +226,11 @@ def index_chunks(
     return len(points)
 
 
-def _rrf_fuse(result_lists: list[list[tuple[int, float]]], k: int = 60) -> list[tuple[int, float]]:
+def _rrf_fuse(result_lists: list[list[tuple[int, float]]], k: int | None = None) -> list[tuple[int, float]]:
     """Reciprocal Rank Fusion across multiple ranked lists of (point_id, score)."""
+    if k is None:
+        from backend.config import RRF_K
+        k = RRF_K
     scores: dict[int, float] = {}
     for ranked in result_lists:
         for rank, (pid, _) in enumerate(ranked):

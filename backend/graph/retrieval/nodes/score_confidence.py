@@ -1,7 +1,7 @@
 """Node: score_confidence — top-1 score and gap-to-tail for the router."""
 from __future__ import annotations
 
-from backend.graph.state import RAGState
+from backend.graph.retrieval.state import RAGState
 
 
 def score_confidence(state: RAGState) -> RAGState:

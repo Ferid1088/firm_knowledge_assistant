@@ -3,14 +3,14 @@ import pytest
 
 
 def test_ingestion_graph_builds():
-    from backend.graph.ingestion_graph import build_ingestion_graph
+    from backend.graph.ingestion import build_ingestion_graph
     graph = build_ingestion_graph()
     assert graph is not None
 
 
 def test_triage_text_pdf(tmp_path):
     """A PDF with text should route to text_parse."""
-    from backend.graph.ingestion_graph import triage_node
+    from backend.graph.ingestion.nodes.triage import triage_node
     # Create a minimal PDF with text using fitz
     import fitz
     doc = fitz.open()
@@ -27,7 +27,7 @@ def test_triage_text_pdf(tmp_path):
 
 
 def test_triage_image_file():
-    from backend.graph.ingestion_graph import triage_node
+    from backend.graph.ingestion.nodes.triage import triage_node
     state = {"source_path": "photo.jpg"}
     out = triage_node(state)
     assert out["is_scanned"] is True
@@ -35,7 +35,7 @@ def test_triage_image_file():
 
 
 def test_triage_docx():
-    from backend.graph.ingestion_graph import triage_node
+    from backend.graph.ingestion.nodes.triage import triage_node
     state = {"source_path": "report.docx"}
     out = triage_node(state)
     assert out["is_scanned"] is False
@@ -43,14 +43,14 @@ def test_triage_docx():
 
 
 def test_route_after_triage():
-    from backend.graph.ingestion_graph import _route_after_triage
+    from backend.graph.ingestion.nodes.triage import _route_after_triage
     assert _route_after_triage({"is_scanned": True}) == "ocr"
     assert _route_after_triage({"is_scanned": False}) == "text"
 
 
 def test_chunk_error_routes_to_end():
     """When chunk_node sets error in state, the graph should route to END."""
-    from backend.graph.ingestion_graph import build_ingestion_graph
+    from backend.graph.ingestion import build_ingestion_graph
     from langgraph.graph import END
     graph = build_ingestion_graph()
     # The graph should have a conditional edge from "chunk" (not a direct edge)

@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from backend.config import RETRIEVE_K
-from backend.graph.state import RAGState
-from backend.graph.utils import get_reranker
+from backend.graph.retrieval.state import RAGState
+from backend.graph.retrieval.utils import get_reranker
 
 
 def rerank(state: RAGState) -> RAGState:

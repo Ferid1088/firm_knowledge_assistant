@@ -37,6 +37,7 @@ OLLAMA_TEMPERATURE = 0
 # ── Retrieval ──────────────────────────────────────────────────────────────
 RETRIEVE_K = 5            # final top-k returned to the answer node
 RETRIEVE_DEEP_POOL = 50   # deep pool sent to reranker
+RRF_K = 60                # RRF constant: 1/(k + rank + 1); standard value is 60
 MAX_ATTEMPTS = 3          # escalation loop hard cap
 CONFIDENCE_THRESHOLD = 0.55   # top-1 score below this -> escalate
 CONFIDENCE_GAP_MIN = 0.05     # gap(top1 - top2) below this adds uncertainty

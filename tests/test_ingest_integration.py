@@ -14,7 +14,7 @@ def test_ingest_result_type():
 
 def test_graph_produces_ingest_result_fields():
     """The graph's run_ingest output has the fields we need for IngestResult."""
-    from backend.graph.ingestion_state import IngestionState
+    from backend.graph.ingestion.state import IngestionState
     import typing
     hints = typing.get_type_hints(IngestionState)
     assert "n_chunks" in hints
@@ -39,7 +39,7 @@ def test_ingest_delegates_to_graph(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "backend.graph.ingestion_graph.run_ingest", fake_run_ingest
+        "backend.graph.ingestion.run_ingest", fake_run_ingest
     )
     from backend.tools.pipeline import ingest, IngestResult
     result = ingest("/tmp/fake.pdf", verbose=False)
@@ -58,7 +58,7 @@ def test_ingest_raises_on_graph_error(monkeypatch):
         return {"error": "Parser failed: corrupt file"}
 
     monkeypatch.setattr(
-        "backend.graph.ingestion_graph.run_ingest", fake_run_ingest
+        "backend.graph.ingestion.run_ingest", fake_run_ingest
     )
     from backend.tools.pipeline import ingest
     with pytest.raises(RuntimeError, match="Parser failed"):

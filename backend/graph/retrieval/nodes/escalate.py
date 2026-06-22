@@ -1,7 +1,7 @@
 """Node: escalate — bump attempt count and clear the pool to retry retrieval."""
 from __future__ import annotations
 
-from backend.graph.state import RAGState
+from backend.graph.retrieval.state import RAGState
 
 
 def escalate(state: RAGState) -> RAGState:
