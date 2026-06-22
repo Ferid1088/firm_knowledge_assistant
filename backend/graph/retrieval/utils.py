@@ -4,7 +4,13 @@ import json
 import re
 from pathlib import Path
 
-from backend.config import OLLAMA_MODEL, RERANKER_MODEL_ID, DEFAULT_ANSWER_LANG, QDRANT_DIR, LANG_DETECTION_CONFIDENCE, RERANKER_DEVICE
+from backend.config import (
+    OLLAMA_MODEL, RERANKER_MODEL_ID, DEFAULT_ANSWER_LANG, QDRANT_DIR,
+    LANG_DETECTION_CONFIDENCE, RERANKER_DEVICE,
+    ENABLE_QUERY_REWRITE, QUERY_REWRITE_MIN_LENGTH,
+    ENABLE_LLM_DECOMPOSITION, DECOMPOSE_MAX_SUBQUESTIONS,
+    ENABLE_HYDE,
+)
 from backend.services.language import registry
 
 
@@ -135,26 +141,200 @@ def translate_query(query: str, target_lang: str, source_lang: str) -> str:
         return query  # fallback: use original
 
 
+# -- E1: Query rewriting (vague / conversational / typo) -------------------
+
+# Anaphoric terms that signal a conversational follow-up needing coreference resolution
+_ANAPHORIC_DE = {"diese", "dieser", "dieses", "das", "davon", "dabei", "dazu", "dem", "deren", "dessen"}
+_ANAPHORIC_EN = {"it", "this", "that", "these", "those", "its", "them"}
+_ANAPHORIC_ALL = _ANAPHORIC_DE | _ANAPHORIC_EN
+
+
+def _has_anaphoric_reference(question: str) -> bool:
+    """Return True if the query contains anaphoric terms needing coreference resolution."""
+    words = set(re.findall(r"\b\w+\b", question.lower()))
+    return bool(words & _ANAPHORIC_ALL)
+
+
+def _is_vague_query(question: str) -> bool:
+    """Return True if the query is short and lacks specific identifiers."""
+    words = question.split()
+    if len(words) >= 5:
+        return False
+    # Has digit, section symbol, or uppercase proper noun > 3 chars -> specific enough
+    if re.search(r"\d", question):
+        return False
+    if "§" in question:
+        return False
+    if any(w[0].isupper() and len(w) > 3 and w != words[0] for w in words if w):
+        return False
+    return True
+
+
+def _is_keyword_fragment(question: str) -> bool:
+    """Return True if query looks like keyword fragments (no verb-like structure)."""
+    words = question.split()
+    if len(words) > 6:
+        return False
+    # No question mark and no verb-like endings -> likely fragments
+    if "?" in question:
+        return False
+    # Very short keyword-only input
+    return len(words) <= 3 and not any(w.lower().endswith(("en", "st", "et", "ed", "ing", "ung"))
+                                       for w in words)
+
+
+def rewrite_query(question: str, history: list[dict] | None, lang: str) -> str | None:
+    """Rewrite a vague/conversational/fragment query using local Ollama LLM.
+
+    Returns the rewritten query string, or None if the original is already
+    specific enough (caller should keep the original).
+    """
+    if not ENABLE_QUERY_REWRITE:
+        return None
+    if len(question.split()) < QUERY_REWRITE_MIN_LENGTH and not _is_keyword_fragment(question):
+        return None
+
+    try:
+        import ollama
+    except ImportError:
+        return None
+
+    # 1. Conversational follow-up: resolve anaphoric references using history
+    if history and _has_anaphoric_reference(question):
+        last_answer = ""
+        for turn in reversed(history):
+            if turn.get("role") == "assistant":
+                last_answer = turn.get("text", turn.get("content", ""))
+                break
+        if last_answer:
+            prompt = (
+                f"/no_think\nThe user's follow-up query contains a pronoun or demonstrative "
+                f"that refers to something in the previous answer. Rewrite the query to be "
+                f"self-contained by resolving the reference.\n\n"
+                f"Previous answer (excerpt): {last_answer[:500]}\n"
+                f"Follow-up query: {question}\n\n"
+                f"Return ONLY the rewritten query, nothing else."
+            )
+            try:
+                resp = ollama.chat(
+                    model=OLLAMA_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    options={"temperature": 0},
+                )
+                rewritten = resp["message"]["content"].strip()
+                if rewritten and rewritten != question:
+                    return rewritten
+            except Exception:
+                pass
+
+    # 2. Vague query: make it more specific
+    if _is_vague_query(question):
+        prompt = (
+            f"/no_think\nThe following query is vague and underspecified. "
+            f"Rewrite it as a more specific question that a document retrieval system "
+            f"can answer. Keep the same intent; add specificity.\n\n"
+            f"Query: {question}\n\n"
+            f"Return ONLY the rewritten query, nothing else."
+        )
+        try:
+            resp = ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0},
+            )
+            rewritten = resp["message"]["content"].strip()
+            if rewritten and rewritten != question:
+                return rewritten
+        except Exception:
+            pass
+
+    # 3. Keyword fragment: form a complete question
+    if _is_keyword_fragment(question):
+        prompt = (
+            f"/no_think\nThe following input is a keyword fragment, not a complete question. "
+            f"Turn it into a well-formed question that a document search system can answer.\n\n"
+            f"Input: {question}\n\n"
+            f"Return ONLY the rewritten question, nothing else."
+        )
+        try:
+            resp = ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0},
+            )
+            rewritten = resp["message"]["content"].strip()
+            if rewritten and rewritten != question:
+                return rewritten
+        except Exception:
+            pass
+
+    return None
+
+
+# -- Multi-part detection + decomposition -----------------------------------
+
 def is_multi_part(question: str) -> bool:
-    """Heuristic check for multi-part questions via keyword indicators or multiple '?'."""
+    """Check for multi-part questions: fast keyword heuristic + optional LLM fallback."""
     indicators = [" und ", " and ", " sowie ", " compare ", " vergleich", " both "]
     q_lower = question.lower()
-    return any(ind in q_lower for ind in indicators) or question.count("?") > 1
+    keyword_hit = any(ind in q_lower for ind in indicators) or question.count("?") > 1
+
+    if keyword_hit and ENABLE_LLM_DECOMPOSITION:
+        # LLM confirmation: keywords like "und" appear in non-multi-part queries too
+        try:
+            import ollama
+            prompt = (
+                f"/no_think\nDoes the following query ask multiple INDEPENDENT questions "
+                f"that should each be answered separately? Answer ONLY 'yes' or 'no'.\n\n"
+                f"Query: {question}"
+            )
+            resp = ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0},
+            )
+            answer = resp["message"]["content"].strip().lower()
+            return answer.startswith("yes")
+        except Exception:
+            return keyword_hit  # fallback to keyword result on LLM failure
+
+    return keyword_hit
+
+
+def _validate_sub_questions(subs: list[str], original: str) -> list[str]:
+    """Filter out sub-questions that reference each other (not truly independent)."""
+    # Cross-reference indicators: if sub_i mentions text unique to sub_j, they depend
+    cross_ref_patterns = [
+        r"\b(the above|the previous|the first|see above|obige|vorige|erste)\b",
+        r"\b(based on that|building on|aufbauend)\b",
+    ]
+    valid = []
+    for sq in subs:
+        is_cross_ref = any(re.search(pat, sq.lower()) for pat in cross_ref_patterns)
+        if not is_cross_ref and sq.strip():
+            valid.append(sq.strip())
+    return valid if valid else [original]
 
 
 def decompose_question(question: str, lang: str) -> list[str]:
-    """Use local LLM to decompose a multi-part question into sub-questions."""
+    """Use local LLM to decompose a multi-part question into sub-questions.
+
+    E2: Validates independence and caps at DECOMPOSE_MAX_SUBQUESTIONS.
+    """
     try:
         import ollama
+        max_q = DECOMPOSE_MAX_SUBQUESTIONS
         if lang == "de":
             prompt = (
-                f"/no_think\nZerlege die folgende Frage in 2-4 eigenständige Teilfragen. "
+                f"/no_think\nZerlege die folgende Frage in 2-{max_q} eigenständige Teilfragen. "
+                f"Jede Teilfrage muss unabhängig von den anderen verständlich sein. "
                 f"Gib NUR eine JSON-Liste von Strings zurück, z.B. [\"Frage 1\", \"Frage 2\"].\n\n"
                 f"Frage: {question}"
             )
         else:
             prompt = (
-                f"/no_think\nDecompose the following question into 2-4 independent sub-questions. "
+                f"/no_think\nDecompose the following question into 2-{max_q} independent sub-questions. "
+                f"Each sub-question must be self-contained and understandable on its own. "
                 f"Return ONLY a JSON array of strings, e.g. [\"Q1\", \"Q2\"].\n\n"
                 f"Question: {question}"
             )
@@ -167,10 +347,51 @@ def decompose_question(question: str, lang: str) -> list[str]:
         # Extract JSON array
         match = re.search(r"\[.*\]", raw, re.DOTALL)
         if match:
-            return json.loads(match.group())
+            subs = json.loads(match.group())
+            # Cap and validate independence
+            subs = subs[:max_q]
+            return _validate_sub_questions(subs, question)
     except Exception:
         pass
     return [question]
+
+
+# -- E3: HyDE — Hypothetical Document Embedding ---------------------------
+
+def generate_hyde_passage(question: str, lang: str) -> str | None:
+    """Generate a hypothetical answer passage (~100 words) for HyDE retrieval.
+
+    Returns the passage text, or None if generation fails or HyDE is disabled.
+    Used by prepare_query to populate state['hyde_passage']; the retrieve node
+    embeds this for a second dense pass and merges via RRF.
+    """
+    if not ENABLE_HYDE:
+        return None
+    try:
+        import ollama
+        if lang == "de":
+            prompt = (
+                f"/no_think\nSchreibe einen hypothetischen Absatz (~100 Wörter), der die "
+                f"folgende Frage direkt beantwortet. Schreibe im Stil eines technischen "
+                f"Dokuments. Gib NUR den Absatz zurück, keine Einleitung.\n\n"
+                f"Frage: {question}"
+            )
+        else:
+            prompt = (
+                f"/no_think\nWrite a hypothetical passage (~100 words) that directly answers "
+                f"the following question. Write in the style of a technical document. "
+                f"Return ONLY the passage, no preamble.\n\n"
+                f"Question: {question}"
+            )
+        resp = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.3},  # slight creativity for hypothetical generation
+        )
+        passage = resp["message"]["content"].strip()
+        return passage if passage else None
+    except Exception:
+        return None
 
 
 # -- Claim verification (shared by answer node) ---------------------------

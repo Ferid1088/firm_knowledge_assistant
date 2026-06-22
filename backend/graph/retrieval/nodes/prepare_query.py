@@ -1,15 +1,17 @@
 """Node: prepare_query — language detection, answer-lang resolution, query
-translation (cached), multi-part decomposition, and date range extraction."""
+translation (cached), multi-part decomposition, date range extraction,
+query rewriting (E1), and HyDE passage generation (E3)."""
 from __future__ import annotations
 
 import re
 
-from backend.config import ENABLE_TRANSLATED_BM25
+from backend.config import ENABLE_TRANSLATED_BM25, ENABLE_HYDE
 from backend.services.language import registry
 from backend.graph.retrieval.state import RAGState
 from backend.graph.retrieval.utils import (
     detect_lang, parse_explicit_lang, translate_query,
     is_multi_part, decompose_question,
+    rewrite_query, generate_hyde_passage,
 )
 from backend.tools.dates import extract_and_normalize
 
@@ -18,6 +20,12 @@ def prepare_query(state: RAGState) -> RAGState:
     """Detect language, resolve answer_lang, cache translations, decompose multi-part queries."""
     question = state["question"]
     active_codes = state.get("active_lang_codes", ["de"])
+
+    # E1: Query rewriting — BEFORE language detection and decomposition
+    original_query = question
+    rewritten = rewrite_query(question, state.get("history"), detect_lang(question))
+    if rewritten:
+        question = rewritten
 
     query_lang = detect_lang(question)
     explicit_lang = parse_explicit_lang(question)
@@ -70,8 +78,16 @@ def prepare_query(state: RAGState) -> RAGState:
                 date_from = min(query_dates)
                 date_to = max(query_dates)
 
+    # E3: HyDE passage — generated AFTER language detection, BEFORE retrieval
+    hyde_passage = state.get("hyde_passage")
+    if hyde_passage is None and ENABLE_HYDE:
+        hyde_passage = generate_hyde_passage(question, query_lang)
+
     return {
         **state,
+        "question": question,  # may be rewritten by E1
+        "original_query": original_query,
+        "rewritten_query": rewritten,
         "query_lang": query_lang,
         "answer_lang": answer_lang,
         "translated_queries": translated,
@@ -79,4 +95,5 @@ def prepare_query(state: RAGState) -> RAGState:
         "attempts": state.get("attempts", 0),
         "date_filter_from": date_from,
         "date_filter_to": date_to,
+        "hyde_passage": hyde_passage,
     }

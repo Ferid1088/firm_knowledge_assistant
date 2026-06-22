@@ -1,5 +1,5 @@
 """Node: retrieve — bidirectional hybrid (dense + per-language BM25) fan-out
-with RRF fusion into a deep candidate pool."""
+with RRF fusion into a deep candidate pool.  E3: optional HyDE dense pass."""
 from __future__ import annotations
 
 from backend.config import ENABLE_TRANSLATED_BM25, RETRIEVE_DEEP_POOL
@@ -68,6 +68,27 @@ def retrieve(state: RAGState) -> RAGState:
                 if cid not in seen_ids:
                     seen_ids.add(cid)
                     all_hits.append(h)
+
+    # E3: HyDE — additional dense pass using the hypothetical answer passage
+    hyde_passage = state.get("hyde_passage")
+    if hyde_passage:
+        hyde_hits = store_search(
+            get_collection(),
+            get_embedder(),
+            hyde_passage,
+            {},  # no BM25 for HyDE — dense only
+            [],  # no active lang codes for BM25
+            k=k // 2,
+            allowed_doc_type_ids=allowed_doc_type_ids,
+            structural_types=structural_types,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        for h in hyde_hits:
+            cid = h["chunk_id"]
+            if cid not in seen_ids:
+                seen_ids.add(cid)
+                all_hits.append(h)
 
     # Sort by score, keep deep pool
     all_hits.sort(key=lambda x: x["score"], reverse=True)

@@ -15,6 +15,13 @@ class RAGState(TypedDict, total=False):
     active_lang_codes: list[str]       # e.g. ["de", "en"]
     history: list[dict]                # prior conversation turns [{role, text}], oldest-first
 
+    # Query rewriting (E1)
+    original_query: Optional[str]      # user's raw input before rewrite
+    rewritten_query: Optional[str]     # LLM-rewritten query (None if no rewrite needed)
+
+    # HyDE (E3)
+    hyde_passage: Optional[str]        # hypothetical answer passage for dense retrieval
+
     # Language
     query_lang: str                    # detected language of query
     answer_lang: str                   # language to answer in

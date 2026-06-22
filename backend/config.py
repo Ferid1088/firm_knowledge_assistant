@@ -55,6 +55,10 @@ ENABLE_TRANSLATED_BM25 = True   # run BM25 pass per active language (not just DE
 ENABLE_SIBLING_EXPANSION = False # ±1 sibling context (OFF until eval shows lift)
 EXPANSION_TOKEN_BUDGET = 1024    # max tokens of expanded context per answer (D3)
 ENABLE_HYDE = False              # deferred to GPU server
+ENABLE_QUERY_REWRITE = True      # E1: rewrite vague/conversational/typo queries
+QUERY_REWRITE_MIN_LENGTH = 3     # E1: skip rewrite for queries shorter than this
+ENABLE_LLM_DECOMPOSITION = True  # E2: LLM fallback for multi-part detection
+DECOMPOSE_MAX_SUBQUESTIONS = 4   # E2: hard cap on sub-question fan-out
 ENABLE_EMBED_ENRICHMENT = True   # LLM descriptions for oversize tables + figures at ingest
 
 # ── Ingestion graph ────────────────────────────────────────────────────────────
