@@ -8,6 +8,7 @@ Collection schema:
 Every chunk carries is_current=True; re-ingest sets the old version to False.
 """
 from __future__ import annotations
+import datetime
 import json
 import uuid
 from typing import Any
@@ -50,6 +51,12 @@ def get_collection(persist_dir: str = QDRANT_DIR, collection: str = QDRANT_COLLE
             vectors_config={"dense": VectorParams(size=EMBED_DIM, distance=Distance.COSINE)},
             sparse_vectors_config=sparse_cfg,
         )
+        try:
+            client.create_payload_index(collection_name=collection, field_name="date_min", field_schema="keyword")
+            client.create_payload_index(collection_name=collection, field_name="date_max", field_schema="keyword")
+            client.create_payload_index(collection_name=collection, field_name="version_num", field_schema="integer")
+        except Exception:
+            pass  # indexes may already exist
     return client, collection
 
 
@@ -61,6 +68,8 @@ def _make_point(
     doc_id: str,
     version_id: str,
     sizes: dict,
+    version_num: int = 1,
+    ingest_time: str = "",
 ) -> PointStruct:
     """Build a Qdrant PointStruct from a chunk, its embeddings, and doc-level metadata."""
     from backend.services.citations import chunk_address
@@ -110,6 +119,13 @@ def _make_point(
             # Enrichment metadata (figures, oversize tables)
             "caption": chunk.metadata.get("caption", ""),
             "embed_description": chunk.metadata.get("embed_description", ""),
+            # Version tracking
+            "version_num": version_num,       # human-readable: 1, 2, 3...
+            "ingest_time": ingest_time,       # ISO timestamp of this version
+            # Date fields extracted from chunk text
+            "dates_iso": json.dumps(chunk.metadata.get("dates_iso", [])),
+            "date_min": chunk.metadata.get("date_min") or "",
+            "date_max": chunk.metadata.get("date_max") or "",
         },
     )
 
@@ -154,6 +170,21 @@ def index_chunks(
     client, collection = collection_tuple
     version_id = str(uuid.uuid4())
 
+    # Compute human-readable version number (count previous versions + 1)
+    existing = client.scroll(
+        collection_name=collection,
+        scroll_filter=Filter(must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]),
+        limit=1,
+        with_payload=["version_id"],
+    )[0]
+    seen_versions = set()
+    for r in existing:
+        vid = r.payload.get("version_id", "")
+        if vid:
+            seen_versions.add(vid)
+    version_num = len(seen_versions) + 1
+    ingest_time = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
     # Mark old version before inserting new
     mark_old_version(client, collection, doc_id, version_id)
 
@@ -185,6 +216,8 @@ def index_chunks(
             doc_id=doc_id,
             version_id=version_id,
             sizes=sizes,
+            version_num=version_num,
+            ingest_time=ingest_time,
         )
         points.append(point)
 
@@ -301,6 +334,9 @@ def search(
                 "boxes": json.loads(p.get("boxes", "{}")),
             },
             "score": id_to_score.get(r.id, 0.0),
+            "version_id": p.get("version_id", ""),
+            "version_num": p.get("version_num", 1),
+            "ingest_time": p.get("ingest_time", ""),
         })
 
     hits.sort(key=lambda x: x["score"], reverse=True)
