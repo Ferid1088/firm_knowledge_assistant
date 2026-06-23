@@ -40,6 +40,10 @@ class RAGState(TypedDict, total=False):
     confidence_gap: float
     attempts: int
 
+    # Best results across all escalation iterations (kept in RAM, never persisted)
+    best_reranked: Optional[list[dict]]     # highest-scoring reranked hits seen across all attempts
+    best_confidence: Optional[float]        # confidence of the best attempt
+
     # Answer
     answer: str
     claims: list[dict]                 # [{text, source, quote, verified}]

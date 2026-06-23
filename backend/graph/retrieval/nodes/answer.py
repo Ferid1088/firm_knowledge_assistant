@@ -30,11 +30,11 @@ def answer(state: RAGState) -> RAGState:
     """Call local LLM, verify citations against source chunks, populate artifact_chunks."""
     import ollama
 
-    # Prefer expanded_context (parent heading prepended) over raw reranked hits.
-    # expanded_context is produced by the expand_context node; if absent, fall back
-    # to reranked.  Citations still resolve against reranked (the precise children).
+    # Use the best results seen across all escalation iterations, not just the last.
+    # best_reranked is tracked by score_confidence; fall back to current reranked.
+    reranked = state.get("best_reranked") or state.get("reranked", [])
+    # Prefer expanded_context (parent heading prepended) if available for the best hits.
     expanded = state.get("expanded_context")
-    reranked = state.get("reranked", [])
     context_hits = expanded if expanded else reranked
     if not context_hits:
         return abstain(state)
