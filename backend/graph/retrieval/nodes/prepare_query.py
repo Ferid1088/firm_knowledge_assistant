@@ -1,17 +1,21 @@
 """Node: prepare_query — language detection, answer-lang resolution, query
 translation (cached), multi-part decomposition, date range extraction,
-query rewriting (E1), and HyDE passage generation (E3)."""
+and query rewriting (E1).
+
+HyDE (E3) is NOT triggered here — it activates reactively in the escalate
+node after the second reranking loop fails (attempt >= 2). This avoids
+wasting an LLM call on queries that don't need it."""
 from __future__ import annotations
 
 import re
 
-from backend.config import ENABLE_TRANSLATED_BM25, ENABLE_HYDE
+from backend.config import ENABLE_TRANSLATED_BM25
 from backend.services.language import registry
 from backend.graph.retrieval.state import RAGState
 from backend.graph.retrieval.utils import (
     detect_lang, parse_explicit_lang, translate_query,
     is_multi_part, decompose_question,
-    rewrite_query, generate_hyde_passage,
+    rewrite_query,
 )
 from backend.tools.dates import extract_and_normalize
 
@@ -78,11 +82,6 @@ def prepare_query(state: RAGState) -> RAGState:
                 date_from = min(query_dates)
                 date_to = max(query_dates)
 
-    # E3: HyDE passage — generated AFTER language detection, BEFORE retrieval
-    hyde_passage = state.get("hyde_passage")
-    if hyde_passage is None and ENABLE_HYDE:
-        hyde_passage = generate_hyde_passage(question, query_lang)
-
     return {
         **state,
         "question": question,  # may be rewritten by E1
@@ -95,5 +94,4 @@ def prepare_query(state: RAGState) -> RAGState:
         "attempts": state.get("attempts", 0),
         "date_filter_from": date_from,
         "date_filter_to": date_to,
-        "hyde_passage": hyde_passage,
     }
