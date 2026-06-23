@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -50,6 +51,18 @@ def _reciprocal_rank(hits: list[dict], expected_doc_id: str) -> float:
     return 0.0
 
 
+def _ndcg_at_k(hits: list[dict], expected_doc_id: str, k: int) -> float:
+    """Compute NDCG@k for a single query (binary relevance: 1 relevant doc)."""
+    dcg = sum(
+        1.0 / math.log2(i + 2)
+        for i, h in enumerate(hits[:k])
+        if _doc_id_from_hit(h) == expected_doc_id
+    )
+    # Ideal: single relevant doc at position 1 -> IDCG = 1/log2(2) = 1.0
+    idcg = 1.0 / math.log2(2)
+    return dcg / idcg if idcg > 0 else 0.0
+
+
 def run_eval(golden_path: str, top_k: int = 5) -> dict:
     """Run retrieval eval and return metrics dict."""
     golden = load_golden(golden_path)
@@ -59,7 +72,7 @@ def run_eval(golden_path: str, top_k: int = 5) -> dict:
 
     # Bootstrap models and indices
     embedder = get_embedder()
-    collection_tuple = get_collection(QDRANT_DIR)
+    collection_tuple = get_collection()
     bm25 = rebuild_bm25_indices(QDRANT_DIR)
     set_bm25_indices(bm25)
     bm25_indices = get_bm25_indices()
@@ -71,6 +84,8 @@ def run_eval(golden_path: str, top_k: int = 5) -> dict:
     mrr_sum = 0.0
     recall50_hits = 0
     hitk_hits = 0
+    ndcg5_sum = 0.0
+    ndcg8_sum = 0.0
 
     print(f"\n{'ID':<8} {'Lang':<4} {'Type':<16} {'MRR':>6} {'R@50':>5} {'H@{0}':>5} Query".format(top_k))
     print("-" * 100)
@@ -109,7 +124,13 @@ def run_eval(golden_path: str, top_k: int = 5) -> dict:
         # Hit@k on top-k of reranked
         hit_k = any(_doc_id_from_hit(h) == expected for h in reranked[:top_k])
 
+        # NDCG@5 and NDCG@8
+        ndcg5 = _ndcg_at_k(reranked, expected, 5)
+        ndcg8 = _ndcg_at_k(reranked, expected, 8)
+
         mrr_sum += mrr
+        ndcg5_sum += ndcg5
+        ndcg8_sum += ndcg8
         if recall50:
             recall50_hits += 1
         if hit_k:
@@ -125,6 +146,8 @@ def run_eval(golden_path: str, top_k: int = 5) -> dict:
             "lang": lang,
             "case_type": case_type,
             "mrr": mrr,
+            "ndcg_at_5": ndcg5,
+            "ndcg_at_8": ndcg8,
             "recall_at_50": recall50,
             "hit_at_k": hit_k,
             "pool_size": len(pool),
@@ -136,6 +159,8 @@ def run_eval(golden_path: str, top_k: int = 5) -> dict:
         "MRR": mrr_sum / n if n else 0.0,
         "Recall@50": recall50_hits / n if n else 0.0,
         f"Hit@{top_k}": hitk_hits / n if n else 0.0,
+        "NDCG@5": ndcg5_sum / n if n else 0.0,
+        "NDCG@8": ndcg8_sum / n if n else 0.0,
         "n_queries": n,
         "top_k": top_k,
     }
@@ -145,6 +170,8 @@ def run_eval(golden_path: str, top_k: int = 5) -> dict:
     print(f"  MRR:       {metrics['MRR']:.3f}")
     print(f"  Recall@50: {metrics['Recall@50']:.1%}")
     print(f"  Hit@{top_k}:    {metrics[f'Hit@{top_k}']:.1%}")
+    print(f"  NDCG@5:    {metrics['NDCG@5']:.3f}")
+    print(f"  NDCG@8:    {metrics['NDCG@8']:.3f}")
 
     # Per-type breakdown
     by_type: dict[str, list[dict]] = {}
@@ -156,7 +183,9 @@ def run_eval(golden_path: str, top_k: int = 5) -> dict:
         t_mrr = sum(i["mrr"] for i in items) / len(items)
         t_r50 = sum(1 for i in items if i["recall_at_50"]) / len(items)
         t_hk = sum(1 for i in items if i["hit_at_k"]) / len(items)
-        print(f"  {t:<16}: MRR={t_mrr:.3f}  R@50={t_r50:.0%}  H@{top_k}={t_hk:.0%}  (n={len(items)})")
+        t_ndcg5 = sum(i["ndcg_at_5"] for i in items) / len(items)
+        t_ndcg8 = sum(i["ndcg_at_8"] for i in items) / len(items)
+        print(f"  {t:<16}: MRR={t_mrr:.3f}  R@50={t_r50:.0%}  H@{top_k}={t_hk:.0%}  NDCG@5={t_ndcg5:.3f}  NDCG@8={t_ndcg8:.3f}  (n={len(items)})")
 
     # Save timestamped results
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

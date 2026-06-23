@@ -110,9 +110,12 @@ def _normalize_scores(
         return []
 
     if method == "percentile":
-        sorted_s = sorted(raw_scores)
-        n = max(len(sorted_s) - 1, 1)
-        return [sorted_s.index(s) / n for s in raw_scores]
+        # O(n log n) rank computation with stable, unique ranks for duplicates
+        indexed = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i])
+        ranks = [0.0] * len(raw_scores)
+        for rank, idx in enumerate(indexed):
+            ranks[idx] = rank / max(len(raw_scores) - 1, 1)
+        return ranks
     elif method == "minmax":
         mn, mx = min(raw_scores), max(raw_scores)
         spread = mx - mn + 1e-9

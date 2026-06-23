@@ -30,15 +30,23 @@ def answer(state: RAGState) -> RAGState:
     """Call local LLM, verify citations against source chunks, populate artifact_chunks."""
     import ollama
 
+    # Prefer expanded_context (parent heading prepended) over raw reranked hits.
+    # expanded_context is produced by the expand_context node; if absent, fall back
+    # to reranked.  Citations still resolve against reranked (the precise children).
+    expanded = state.get("expanded_context")
     reranked = state.get("reranked", [])
-    if not reranked:
+    context_hits = expanded if expanded else reranked
+    if not context_hits:
         return abstain(state)
 
     answer_lang = state.get("answer_lang", DEFAULT_ANSWER_LANG)
     question = state["question"]
 
     template = load_prompt("answer", answer_lang)
-    sources_text = "\n\n".join(f"[{i+1}] {h['context_text']}" for i, h in enumerate(reranked))
+    sources_text = "\n\n".join(
+        f"[{i+1}] {h.get('expanded_text', h.get('context_text', h['text']))}"
+        for i, h in enumerate(context_hits)
+    )
     history_text = _format_history(state.get("history", []), answer_lang)
     prompt = template.format(sources=sources_text, question=question, history=history_text)
 
@@ -64,7 +72,7 @@ def answer(state: RAGState) -> RAGState:
             if not match:
                 raise
             data = json.loads(match.group())
-        claims = verify_claims(data.get("claims", []), reranked)
+        claims = verify_claims(data.get("claims", []), context_hits)
 
         # Build artifact_chunks (UI only; NEVER put into model prompt)
         artifact_chunks = []
@@ -72,8 +80,8 @@ def answer(state: RAGState) -> RAGState:
             if not c.get("verified"):
                 continue
             idx = c.get("source", 1) - 1
-            if 0 <= idx < len(reranked):
-                h = reranked[idx]
+            if 0 <= idx < len(context_hits):
+                h = context_hits[idx]
                 artifact_chunks.append({
                     "source": c["source"],
                     "chunk_id": h.get("chunk_id", ""),
