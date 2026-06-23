@@ -7,7 +7,7 @@ from pathlib import Path
 from backend.config import (
     OLLAMA_MODEL, RERANKER_MODEL_ID, DEFAULT_ANSWER_LANG, QDRANT_DIR,
     LANG_DETECTION_CONFIDENCE, RERANKER_DEVICE,
-    ENABLE_QUERY_REWRITE, QUERY_REWRITE_MIN_LENGTH,
+    ENABLE_QUERY_REWRITE, QUERY_REWRITE_MIN_LENGTH, QUERY_CONTEXT_DETECT_METHOD,
     ENABLE_LLM_DECOMPOSITION, DECOMPOSE_MAX_SUBQUESTIONS,
     ENABLE_HYDE,
 )
@@ -149,10 +149,60 @@ _ANAPHORIC_EN = {"it", "this", "that", "these", "those", "its", "them"}
 _ANAPHORIC_ALL = _ANAPHORIC_DE | _ANAPHORIC_EN
 
 
-def _has_anaphoric_reference(question: str) -> bool:
-    """Return True if the query contains anaphoric terms needing coreference resolution."""
+def _has_anaphoric_reference_heuristic(question: str) -> bool:
+    """Fast word-list fallback: True if query contains known anaphoric terms."""
     words = set(re.findall(r"\b\w+\b", question.lower()))
     return bool(words & _ANAPHORIC_ALL)
+
+
+def _needs_history_context(question: str, history: list[dict] | None) -> bool:
+    """Detect if a query requires conversation history to be understood.
+
+    Uses the LLM for accurate detection (catches implicit follow-ups like
+    "And the cost?", "Wie teuer?", "Same for section 5") with word-list
+    heuristic as fallback if the LLM is unavailable.
+    """
+    if not history:
+        return False
+
+    if QUERY_CONTEXT_DETECT_METHOD == "heuristic":
+        return _has_anaphoric_reference_heuristic(question)
+
+    # Build context summary from last 2 turns
+    recent = []
+    for turn in reversed(history):
+        role = turn.get("role", "")
+        text = turn.get("text", turn.get("content", ""))
+        if text:
+            recent.append(f"{role}: {text[:200]}")
+        if len(recent) >= 2:
+            break
+    recent.reverse()
+    context_summary = "\n".join(recent)
+
+    try:
+        import ollama
+        resp = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": (
+                f"/no_think\nDoes this query need context from the conversation history "
+                f"to be understood? Consider: pronouns, implicit references, follow-up "
+                f"patterns, incomplete phrases, or any dependency on what was said before.\n\n"
+                f"Conversation history:\n{context_summary}\n\n"
+                f"New query: {question}\n\n"
+                f"Return ONLY 'YES' or 'NO'."
+            )}],
+            options={"temperature": 0},
+        )
+        answer = resp["message"]["content"].strip().upper()
+        if "YES" in answer:
+            return True
+        if "NO" in answer:
+            return False
+    except Exception:
+        pass
+
+    return _has_anaphoric_reference_heuristic(question)
 
 
 def _is_vague_query(question: str) -> bool:
@@ -199,8 +249,8 @@ def rewrite_query(question: str, history: list[dict] | None, lang: str) -> str |
     except ImportError:
         return None
 
-    # 1. Conversational follow-up: resolve anaphoric references using history
-    if history and _has_anaphoric_reference(question):
+    # 1. Conversational follow-up: LLM detects if history context is needed
+    if _needs_history_context(question, history):
         last_answer = ""
         for turn in reversed(history):
             if turn.get("role") == "assistant":

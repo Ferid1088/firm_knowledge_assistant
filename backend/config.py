@@ -57,6 +57,7 @@ EXPANSION_TOKEN_BUDGET = 1024    # max tokens of expanded context per answer (D3
 ENABLE_HYDE = False              # deferred to GPU server
 ENABLE_QUERY_REWRITE = True      # E1: rewrite vague/conversational/typo queries
 QUERY_REWRITE_MIN_LENGTH = 3     # E1: skip rewrite for queries shorter than this
+QUERY_CONTEXT_DETECT_METHOD = "llm"  # "llm" (accurate) | "heuristic" (fast, word-list fallback)
 ENABLE_LLM_DECOMPOSITION = True  # E2: LLM fallback for multi-part detection
 DECOMPOSE_MAX_SUBQUESTIONS = 4   # E2: hard cap on sub-question fan-out
 ENABLE_EMBED_ENRICHMENT = True   # LLM descriptions for oversize tables + figures at ingest
